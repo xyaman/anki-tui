@@ -56,6 +56,10 @@ type App struct {
 	NotesId     []int
 	NoteIndex   int
 	CurrentNote *Note
+
+	// Fields tracking
+	CurrentImageValue string
+	CurrentAudioValue string
 }
 
 func NewApp(config *Config, ankiconnect *AnkiConnect) (*App, error) {
@@ -327,6 +331,7 @@ func (a *App) moveCard(action int) {
 				a.UpdateTopText(fmt.Sprintf("Error: image field ({%s}) not found!", a.Config.ImageFieldName), errorMsg)
 			}
 		} else {
+			a.CurrentImageValue = pictureField.(map[string]interface{})["value"].(string)
 			picture := pictureField.(map[string]interface{})["value"].(string)
 			picture = picture[10 : len(picture)-2]
 			a.SetCardImage(filepath.Join(a.collectionPath, picture))
@@ -377,6 +382,7 @@ func (a *App) playAudio() {
 				a.UpdateTopText(fmt.Sprintf("Error: audio field ({%s}) not found!", a.Config.AudioFieldName), errorMsg)
 			}
 		} else {
+			a.CurrentAudioValue = audioField.(map[string]interface{})["value"].(string)
 			audio := audioField.(map[string]interface{})["value"].(string)
 			audioFile, err := os.Open(filepath.Join(a.collectionPath, audio[7:len(audio)-1]))
 			if err != nil {
@@ -439,8 +445,8 @@ func (a *App) AddAudioAndPictureToLastCard() error {
 	}
 
 	err = a.AnkiConnect.UpdateNoteFields(lastAddedCard.NoteID, Fields{
-		a.Config.MinningAudioFieldName: a.CurrentNote.Fields[a.Config.AudioFieldName].(map[string]interface{})["value"],
-		a.Config.MinningImageFieldName: a.CurrentNote.Fields[a.Config.ImageFieldName].(map[string]interface{})["value"],
+		a.Config.MinningAudioFieldName: a.CurrentAudioValue,
+		a.Config.MinningImageFieldName: a.CurrentImageValue,
 	})
 
 	return err
