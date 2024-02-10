@@ -30,6 +30,11 @@ const (
 	errorMsg = 2
 )
 
+const (
+	MINNING_PAGE = "minning"
+	CONFIG_PAGE  = "config"
+)
+
 type App struct {
 	tviewApp    *tview.Application
 	AnkiConnect *AnkiConnect
@@ -38,13 +43,12 @@ type App struct {
 	Config *Config
 
 	BaseView *tview.Flex
+	Pages    *tview.Pages
 
 	LeftPanel tview.Primitive
 	TopBox    *tview.TextView
 	MidBox    *tview.Flex
 	BottomBox *tview.TextView
-
-	RightPanel *tview.TextView
 
 	CardImageView *tview.Image
 	modalIsActive bool
@@ -60,6 +64,8 @@ type App struct {
 	// Fields tracking
 	CurrentImageValue string
 	CurrentAudioValue string
+
+	SearchQuery string
 }
 
 func NewApp(config *Config, ankiconnect *AnkiConnect) (*App, error) {
@@ -73,23 +79,17 @@ func NewApp(config *Config, ankiconnect *AnkiConnect) (*App, error) {
 		return nil, err
 	}
 
-	// Interface
-
 	topbox := tview.NewTextView().SetScrollable(false).SetDynamicColors(true)
-	topbox.SetBorder(true).SetTitle("Anki-morph").SetTitleAlign(tview.AlignLeft)
+	topbox.SetBorder(true).SetTitle("anki-tui").SetTitleAlign(tview.AlignLeft)
 
 	bottombox := tview.NewTextView().SetScrollable(false)
-
 	cardimageview := tview.NewImage()
-
 	leftpanel := tview.NewFlex().SetDirection(0).AddItem(topbox, 6, 1, false).AddItem(cardimageview, 0, 5, false).AddItem(bottombox, 3, 1, false)
+	mainView := tview.NewFlex().SetDirection(1).AddItem(leftpanel, 0, 4, false)
 
-	rightpanel := tview.NewTextView().SetScrollable(false)
+	pages := tview.NewPages()
 
-	rightpanel.SetBorder(true).SetTitle("Keys")
-
-	mainView := tview.NewFlex().SetDirection(1).AddItem(leftpanel, 0, 4, false).AddItem(rightpanel, 0, 1, false)
-	tviewApp := tview.NewApplication().SetRoot(mainView, true)
+	tviewApp := tview.NewApplication().SetRoot(pages, true).SetFocus(pages)
 
 	app := &App{
 		tviewApp:    tviewApp,
@@ -99,8 +99,7 @@ func NewApp(config *Config, ankiconnect *AnkiConnect) (*App, error) {
 
 		BaseView: mainView,
 
-		LeftPanel:  leftpanel,
-		RightPanel: rightpanel,
+		LeftPanel: leftpanel,
 
 		TopBox:         topbox,
 		BottomBox:      bottombox,
@@ -110,7 +109,42 @@ func NewApp(config *Config, ankiconnect *AnkiConnect) (*App, error) {
 		collectionPath: collectionPath,
 	}
 
-	app.writeInRightPanel()
+	configForm := tview.NewForm()
+	configForm.AddInputField("Query", config.Query, 0, nil, nil).
+		AddInputField("Morph Field Name", config.MorphFieldName, 0, nil, nil).
+		AddInputField("Sentence Field Name", config.SentenceFieldName, 0, nil, nil).
+		AddInputField("Audio Field Name", config.AudioFieldName, 0, nil, nil).
+		AddInputField("Image Field Name", config.ImageFieldName, 0, nil, nil).
+		AddInputField("Known Tag", config.KnownTag, 0, nil, nil).
+		AddInputField("Minning Audio Field Name", config.MinningAudioFieldName, 0, nil, nil).
+		AddInputField("Minning Image Field Name", config.MinningImageFieldName, 0, nil, nil).
+		AddCheckbox("Play Audio Automatically", config.PlayAudioAutomatically, nil).
+		AddButton("Save", func() {
+			config.Query = configForm.GetFormItemByLabel("Query").(*tview.InputField).GetText()
+			config.MorphFieldName = configForm.GetFormItemByLabel("Morph Field Name").(*tview.InputField).GetText()
+			config.SentenceFieldName = configForm.GetFormItemByLabel("Sentence Field Name").(*tview.InputField).GetText()
+			config.AudioFieldName = configForm.GetFormItemByLabel("Audio Field Name").(*tview.InputField).GetText()
+			config.ImageFieldName = configForm.GetFormItemByLabel("Image Field Name").(*tview.InputField).GetText()
+			config.KnownTag = configForm.GetFormItemByLabel("Known Tag").(*tview.InputField).GetText()
+			config.MinningAudioFieldName = configForm.GetFormItemByLabel("Minning Audio Field Name").(*tview.InputField).GetText()
+			config.MinningImageFieldName = configForm.GetFormItemByLabel("Minning Image Field Name").(*tview.InputField).GetText()
+			config.PlayAudioAutomatically = configForm.GetFormItemByLabel("Play Audio Automatically").(*tview.Checkbox).IsChecked()
+
+			err := config.save()
+			if err != nil {
+				topbox.SetText(fmt.Sprintf("Error saving config: %v", err))
+			}
+
+			app.moveCard(reload)
+			pages.SwitchToPage(MINNING_PAGE)
+		}).
+		AddButton("Cancel", func() {
+			pages.SwitchToPage(MINNING_PAGE)
+		})
+
+	// UI
+	pages.AddPage(MINNING_PAGE, mainView, true, true)
+	pages.AddPage(CONFIG_PAGE, configForm, true, false)
 
 	// Keys
 	mainView.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
@@ -177,7 +211,6 @@ func NewApp(config *Config, ankiconnect *AnkiConnect) (*App, error) {
 				})
 
 			app.tviewApp.SetFocus(confirmationModal)
-
 		case 'k':
 			app.SetCardAsKnown()
 		case 'o':
@@ -187,93 +220,24 @@ func NewApp(config *Config, ankiconnect *AnkiConnect) (*App, error) {
 			}
 			app.AnkiConnect.guiBrowse(fmt.Sprintf("nid:%d", lastAddedCard.NoteID))
 		case 'c':
-			app.showConfigForm()
+			// app.showConfigForm()
 			// Send backspace event
-			app.tviewApp.QueueEvent(tcell.NewEventKey(tcell.KeyBackspace, 0, tcell.ModNone))
+			// app.tviewApp.QueueEvent(tcell.NewEventKey(tcell.KeyBackspace, 0, tcell.ModNone))
+			pages.SwitchToPage(CONFIG_PAGE)
 		case 'r':
 			app.playAudio()
+		case '?':
+			app.showKeysBindings()
+		case '/':
+			app.showSearchBar()
 		}
 		return event
 	})
 
 	// Start config form
-	app.showConfigForm()
+	// app.showConfigForm()
 
 	return app, nil
-}
-
-func (a *App) writeInRightPanel() {
-	a.RightPanel.Clear()
-	fmt.Fprintf(a.RightPanel, "Left Arrow: Previous Card\n\n")
-	fmt.Fprintf(a.RightPanel, "Right Arrow: Next Card\n\n")
-	fmt.Fprintf(a.RightPanel, "k: Mark as known (tag: %s)\n\n", excludeTag)
-	fmt.Fprintf(a.RightPanel, "d: Delete note\n\n")
-	fmt.Fprintf(a.RightPanel, "r: (Re)play audio\n\n")
-	fmt.Fprintf(a.RightPanel, "s: Add audio and image to last card created\n\n")
-	fmt.Fprintf(a.RightPanel, "o: Open last added card in anki\n\n")
-	fmt.Fprintf(a.RightPanel, "c: Open config\n\n")
-}
-
-func (a *App) showConfigForm() error {
-
-	// Hide/remove all other views
-	a.BaseView.RemoveItem(a.LeftPanel)
-	a.BaseView.RemoveItem(a.RightPanel)
-
-	configForm := tview.NewForm()
-
-	configForm.AddInputField("Query", a.Config.Query, 0, nil, nil).
-		AddInputField("Morph Field Name", a.Config.MorphFieldName, 0, nil, nil).
-		AddInputField("Sentence Field Name", a.Config.SentenceFieldName, 0, nil, nil).
-		AddInputField("Audio Field Name", a.Config.AudioFieldName, 0, nil, nil).
-		AddInputField("Image Field Name", a.Config.ImageFieldName, 0, nil, nil).
-		AddInputField("Known Tag", a.Config.KnownTag, 0, nil, nil).
-		AddInputField("Minning Audio Field Name", a.Config.MinningAudioFieldName, 0, nil, nil).
-		AddInputField("Minning Image Field Name", a.Config.MinningImageFieldName, 0, nil, nil).
-		AddCheckbox("Play Audio Automatically", a.Config.PlayAudioAutomatically, nil).
-		AddButton("Save", func() {
-			defer a.tviewApp.SetFocus(a.BaseView)
-
-			a.Config.Query = configForm.GetFormItemByLabel("Query").(*tview.InputField).GetText()
-			a.Config.MorphFieldName = configForm.GetFormItemByLabel("Morph Field Name").(*tview.InputField).GetText()
-			a.Config.SentenceFieldName = configForm.GetFormItemByLabel("Sentence Field Name").(*tview.InputField).GetText()
-			a.Config.AudioFieldName = configForm.GetFormItemByLabel("Audio Field Name").(*tview.InputField).GetText()
-			a.Config.ImageFieldName = configForm.GetFormItemByLabel("Image Field Name").(*tview.InputField).GetText()
-			a.Config.KnownTag = configForm.GetFormItemByLabel("Known Tag").(*tview.InputField).GetText()
-			a.Config.MinningAudioFieldName = configForm.GetFormItemByLabel("Minning Audio Field Name").(*tview.InputField).GetText()
-			a.Config.MinningImageFieldName = configForm.GetFormItemByLabel("Minning Image Field Name").(*tview.InputField).GetText()
-			a.Config.PlayAudioAutomatically = configForm.GetFormItemByLabel("Play Audio Automatically").(*tview.Checkbox).IsChecked()
-
-			err := a.Config.save()
-			if err != nil {
-				a.UpdateTopText(fmt.Sprintf("Error saving config: %v", err), errorMsg)
-			}
-
-			a.modalIsActive = false
-			a.BaseView.RemoveItem(configForm)
-			a.moveCard(reload)
-
-			// add back all other views
-			a.BaseView.AddItem(a.LeftPanel, 0, 4, false)
-			a.BaseView.AddItem(a.RightPanel, 0, 1, false)
-
-		}).
-		AddButton("Cancel", func() {
-			a.modalIsActive = false
-			a.BaseView.RemoveItem(configForm)
-			a.tviewApp.SetFocus(a.BaseView)
-
-			// add back all other views
-			a.BaseView.AddItem(a.LeftPanel, 0, 4, false)
-			a.BaseView.AddItem(a.RightPanel, 0, 1, false)
-		})
-
-	// Add form to main view
-	a.BaseView.AddItem(configForm, 0, 10, true)
-	a.tviewApp.SetFocus(configForm)
-	a.modalIsActive = true
-
-	return nil
 }
 
 func (a *App) moveCard(action int) {
@@ -293,10 +257,8 @@ func (a *App) moveCard(action int) {
 			return
 		}
 	case reload:
-		a.writeInRightPanel()
-
 		// Get Notes
-		notes, err := a.AnkiConnect.FindNotes(a.Config.Query)
+		notes, err := a.AnkiConnect.FindNotes(fmt.Sprintf("%s %s", a.Config.Query, a.SearchQuery))
 		if err != nil {
 			a.UpdateTopText(fmt.Sprintf("Error: %v", err), errorMsg)
 		}
@@ -403,7 +365,7 @@ func (a *App) playAudio() {
 
 func (a *App) UpdateTopText(msg string, kind int) {
 	a.TopBox.Clear()
-	fmt.Fprintf(a.TopBox, "Query: %s\n", a.Config.Query)
+	fmt.Fprintf(a.TopBox, "Query: %s %s\n", a.Config.Query, a.SearchQuery)
 	fmt.Fprintf(a.TopBox, "Total Notes: %d/%d\n", a.NoteIndex+1, len(a.NotesId))
 
 	if kind == infoMsg {
@@ -463,4 +425,55 @@ func SetImageToBox(path string, c *tview.Image) (*tview.Image, error) {
 		return nil, err
 	}
 	return c.SetImage(m), nil
+}
+
+// Show keys bindings modal
+func (a *App) showKeysBindings() {
+	// Hide/remove all other views
+	a.BaseView.RemoveItem(a.LeftPanel)
+
+	keysModal := tview.NewModal()
+	keysModal.SetText("Left Arrow: Previous Card\nRight Arrow: Next Card\nk: Mark as known\nd: Delete note\nr: (Re)play audio\ns: Add audio and image to last card created\no: Open last added card in anki\nc: Open config").
+		AddButtons([]string{"Close"}).
+		SetDoneFunc(func(buttonIndex int, buttonLabel string) {
+			a.BaseView.RemoveItem(keysModal)
+			a.tviewApp.SetFocus(a.BaseView)
+
+			// add back all other views
+			a.BaseView.AddItem(a.LeftPanel, 0, 4, false)
+		})
+
+	// align to left
+
+	// Add modal to main view
+	a.BaseView.AddItem(keysModal, 0, 10, true)
+	a.tviewApp.SetFocus(keysModal)
+}
+
+// Show search bar (it adds value to query and reloads cards)
+func (a *App) showSearchBar() {
+	// Hide/remove all other views
+	a.BaseView.RemoveItem(a.LeftPanel)
+
+	searchBar := tview.NewInputField()
+	searchBar.SetLabel("Search: ").SetDoneFunc(func(key tcell.Key) {
+		if key == tcell.KeyEnter {
+			a.SearchQuery = searchBar.GetText()
+			a.modalIsActive = false
+			a.BaseView.RemoveItem(searchBar)
+			a.moveCard(reload)
+
+			// add back all other views
+			a.BaseView.AddItem(a.LeftPanel, 0, 4, false)
+			a.tviewApp.SetFocus(a.BaseView)
+		}
+	})
+
+	searchBar.SetText(a.SearchQuery)
+	a.tviewApp.QueueEvent(tcell.NewEventKey(tcell.KeyBackspace, 0, tcell.ModNone))
+
+	// Add form to main view
+	a.BaseView.AddItem(searchBar, 0, 10, true)
+	a.tviewApp.SetFocus(searchBar)
+	a.modalIsActive = true
 }
