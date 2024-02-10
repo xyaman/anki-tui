@@ -13,7 +13,9 @@ const APPNAME = "ankimorph"
 const FILENAME = "config.yaml"
 
 type Config struct {
-	Query             string `yaml:"query"`
+	Query string `yaml:"query"`
+
+	// All fields can be separaed by comma, and the program will use the first one that is not nil
 	MorphFieldName    string `yaml:"morphFieldName"`
 	SentenceFieldName string `yaml:"sentenceFieldName"`
 	ImageFieldName    string `yaml:"imageFieldName"`

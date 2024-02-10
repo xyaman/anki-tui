@@ -7,6 +7,7 @@ import (
 	_ "image/png"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/gdamore/tcell/v2"
@@ -315,44 +316,66 @@ func (a *App) moveCard(action int) {
 	a.CurrentNote = &currentNote
 
 	// Update TopBox with current note info
-	a.UpdateTopText("Success!", infoMsg)
+	a.UpdateTopText("Card loaded sucessfully!", infoMsg)
 
-	// Update image
-	pictureField, exists := currentNote.Fields[a.Config.ImageFieldName]
-	if !exists {
-		a.UpdateTopText(fmt.Sprintf("Error: image field ({%s}) not found!", a.Config.ImageFieldName), errorMsg)
-	} else {
-		picture := pictureField.(map[string]interface{})["value"].(string)
-		picture = picture[10 : len(picture)-2]
-		a.SetCardImage(filepath.Join(a.collectionPath, picture))
+	// Update ImageView
+	imageFieldsNames := strings.Split(a.Config.ImageFieldName, ",")
+	for index, imageFieldName := range imageFieldsNames {
+		pictureField, exists := currentNote.Fields[strings.Trim(imageFieldName, " ")]
+		if !exists {
+			if index == len(imageFieldsNames)-1 {
+				a.UpdateTopText(fmt.Sprintf("Error: image field ({%s}) not found!", a.Config.ImageFieldName), errorMsg)
+			}
+		} else {
+			picture := pictureField.(map[string]interface{})["value"].(string)
+			picture = picture[10 : len(picture)-2]
+			a.SetCardImage(filepath.Join(a.collectionPath, picture))
+			break
+		}
 	}
 
 	// Update bottom box with sentence info
 	a.BottomBox.Clear()
 
-	morphField, exists := currentNote.Fields[a.Config.MorphFieldName]
-	if !exists {
-		a.UpdateTopText(fmt.Sprintf("Error: morph field ({%s}) not found!", a.Config.MorphFieldName), errorMsg)
-	} else {
-		fmt.Fprintf(a.BottomBox, "Morph: %s\n", morphField.(map[string]interface{})["value"])
+	morphFieldsNames := strings.Split(a.Config.MorphFieldName, ",")
+	for index, morphFieldName := range morphFieldsNames {
+		morphField, exists := currentNote.Fields[strings.Trim(morphFieldName, " ")]
+		if !exists {
+			if index == len(morphFieldsNames)-1 {
+				a.UpdateTopText(fmt.Sprintf("Error: morph field ({%s}) not found!", a.Config.MorphFieldName), errorMsg)
+			}
+		} else {
+			fmt.Fprintf(a.BottomBox, "Morph: %s\n", morphField.(map[string]interface{})["value"])
+		}
 	}
 
-	sentenceField, exists := currentNote.Fields[a.Config.SentenceFieldName]
-	if !exists {
-		a.UpdateTopText(fmt.Sprintf("Error: sentence field ({%s}) not found!", a.Config.SentenceFieldName), errorMsg)
-	} else {
-		fmt.Fprintf(a.BottomBox, "Sentence: %s\n", sentenceField.(map[string]interface{})["value"])
-		clipboard.Write(clipboard.FmtText, []byte(sentenceField.(map[string]interface{})["value"].(string)))
+	sentenceFieldsNames := strings.Split(a.Config.SentenceFieldName, ",")
+	for index, sentenceFieldName := range sentenceFieldsNames {
+		sentenceField, exists := currentNote.Fields[strings.Trim(sentenceFieldName, " ")]
+		if !exists {
+			if index == len(sentenceFieldsNames)-1 {
+				a.UpdateTopText(fmt.Sprintf("Error: sentence field ({%s}) not found!", a.Config.SentenceFieldName), errorMsg)
+			}
+		} else {
+			fmt.Fprintf(a.BottomBox, "Sentence: %s\n", sentenceField.(map[string]interface{})["value"])
+			clipboard.Write(clipboard.FmtText, []byte(sentenceField.(map[string]interface{})["value"].(string)))
+		}
 	}
 
 	if a.Config.PlayAudioAutomatically {
 		a.playAudio()
 	}
+}
 
-	/*
-		audioField, exists := currentNote.Fields[a.Config.AudioFieldName]
+func (a *App) playAudio() {
+
+	audioFieldsNames := strings.Split(a.Config.AudioFieldName, ",")
+	for index, audioFieldName := range audioFieldsNames {
+		audioField, exists := a.CurrentNote.Fields[strings.Trim(audioFieldName, " ")]
 		if !exists {
-			a.UpdateTopText(fmt.Sprintf("Error: audio field ({%s}) not found!", a.Config.AudioFieldName), errorMsg)
+			if index == len(audioFieldsNames)-1 {
+				a.UpdateTopText(fmt.Sprintf("Error: audio field ({%s}) not found!", a.Config.AudioFieldName), errorMsg)
+			}
 		} else {
 			audio := audioField.(map[string]interface{})["value"].(string)
 			audioFile, err := os.Open(filepath.Join(a.collectionPath, audio[7:len(audio)-1]))
@@ -369,29 +392,6 @@ func (a *App) moveCard(action int) {
 				defer streamer.Close()
 			})))
 		}
-
-	*/
-}
-
-func (a *App) playAudio() {
-	audioField, exists := a.CurrentNote.Fields[a.Config.AudioFieldName]
-	if !exists {
-		a.UpdateTopText(fmt.Sprintf("Error: audio field ({%s}) not found!", a.Config.AudioFieldName), errorMsg)
-	} else {
-		audio := audioField.(map[string]interface{})["value"].(string)
-		audioFile, err := os.Open(filepath.Join(a.collectionPath, audio[7:len(audio)-1]))
-		if err != nil {
-			a.UpdateTopText(fmt.Sprintf("Error when playing the audio: %v", err), errorMsg)
-		}
-		streamer, _, err := mp3.Decode(audioFile)
-		if err != nil {
-			a.UpdateTopText(fmt.Sprintf("Error when playing the audio: %v", err), errorMsg)
-		}
-
-		speaker.Clear()
-		speaker.Play(beep.Seq(streamer, beep.Callback(func() {
-			defer streamer.Close()
-		})))
 	}
 }
 
