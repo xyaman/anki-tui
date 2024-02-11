@@ -45,10 +45,10 @@ type App struct {
 	MinningView *tview.Flex
 	Pages       *tview.Pages
 
-	LeftPanel tview.Primitive
-	TopBox    *tview.TextView
-	MidBox    *tview.Flex
-	BottomBox *tview.TextView
+	MinningFlex tview.Primitive
+	TopBox      *tview.TextView
+	MidBox      *tview.Flex
+	BottomBox   *tview.TextView
 
 	CardImageView *tview.Image
 	modalIsActive bool
@@ -58,15 +58,17 @@ type App struct {
 	collectionPath string
 
 	NotesId     []int
-	NoteIndex   int
+	NoteCursor  int
 	CurrentNote *Note
 
 	// Fields tracking
 	CurrentImageValue string
 	CurrentAudioValue string
 
-	SearchQuery     string
-	SearchMorphView *tview.Flex
+	SearchQuery    string
+	MorphMode      bool
+	PrevNotesId    []int
+	PrevNoteCursor int
 }
 
 func NewApp(config *Config, ankiconnect *AnkiConnect) (*App, error) {
@@ -91,7 +93,7 @@ func NewApp(config *Config, ankiconnect *AnkiConnect) (*App, error) {
 		Config: config,
 
 		NotesId:        nil,
-		NoteIndex:      0,
+		NoteCursor:     0,
 		collectionPath: collectionPath,
 
 		Pages: pages,
@@ -99,9 +101,6 @@ func NewApp(config *Config, ankiconnect *AnkiConnect) (*App, error) {
 	}
 
 	app.setupViews()
-
-	// Keys
-	app.MinningView.SetInputCapture(app.minningViewInput)
 	app.moveCard(reload)
 
 	return app, nil
@@ -115,18 +114,21 @@ func (a *App) setupViews() {
 
 	bottombox := tview.NewTextView().SetScrollable(false)
 	cardimageview := tview.NewImage()
-	leftpanel := tview.NewFlex().SetDirection(0).AddItem(topbox, 6, 1, false).AddItem(cardimageview, 0, 5, false).AddItem(bottombox, 3, 1, false)
+	leftpanel := tview.NewFlex().SetDirection(0).AddItem(topbox, 6, 1, false).AddItem(cardimageview, 0, 5, false).AddItem(bottombox, 5, 1, false)
 	mainView := tview.NewFlex().SetDirection(1).AddItem(leftpanel, 0, 4, false)
 
 	a.MinningView = mainView
-	a.LeftPanel = leftpanel
+	a.MinningFlex = leftpanel
 	a.TopBox = topbox
 	a.BottomBox = bottombox
 	a.CardImageView = cardimageview
 
+	a.MinningView.SetInputCapture(a.minningViewInput)
+
 	// Config Form
 	configForm := tview.NewForm()
 	configForm.AddInputField("Query", a.Config.Query, 0, nil, nil).
+		AddInputField("Morph Query*", a.Config.MorphQuery, 0, nil, nil).
 		AddInputField("Morph Field Name", a.Config.MorphFieldName, 0, nil, nil).
 		AddInputField("Sentence Field Name", a.Config.SentenceFieldName, 0, nil, nil).
 		AddInputField("Audio Field Name", a.Config.AudioFieldName, 0, nil, nil).
@@ -137,6 +139,7 @@ func (a *App) setupViews() {
 		AddCheckbox("Play Audio Automatically", a.Config.PlayAudioAutomatically, nil).
 		AddButton("Save", func() {
 			a.Config.Query = configForm.GetFormItemByLabel("Query").(*tview.InputField).GetText()
+			a.Config.MorphQuery = configForm.GetFormItemByLabel("Morph Query*").(*tview.InputField).GetText()
 			a.Config.MorphFieldName = configForm.GetFormItemByLabel("Morph Field Name").(*tview.InputField).GetText()
 			a.Config.SentenceFieldName = configForm.GetFormItemByLabel("Sentence Field Name").(*tview.InputField).GetText()
 			a.Config.AudioFieldName = configForm.GetFormItemByLabel("Audio Field Name").(*tview.InputField).GetText()
@@ -176,8 +179,20 @@ func (a *App) minningViewInput(event *tcell.EventKey) *tcell.EventKey {
 
 	switch event.Rune() {
 	case 'a':
-		// copy morph to clipboard
-		clipboard.Write(clipboard.FmtText, []byte(a.CurrentNote.Fields[a.Config.MorphFieldName].(map[string]interface{})["value"].(string)))
+		if !a.MorphMode {
+			a.PrevNoteCursor = a.NoteCursor
+			a.PrevNotesId = a.NotesId
+			a.MorphMode = true
+			a.SearchQuery = a.CurrentNote.Fields[a.Config.MorphFieldName].(map[string]interface{})["value"].(string)
+			a.moveCard(reload)
+		} else {
+			a.NoteCursor = a.PrevNoteCursor
+			a.NotesId = a.PrevNotesId
+			a.MorphMode = false
+			a.SearchQuery = ""
+			a.PrevNotesId = nil
+			a.moveCard(reset)
+		}
 	case 's':
 		lastAddedCard, err := a.AnkiConnect.GetLastAddedCard()
 		if err != nil {
@@ -216,7 +231,7 @@ func (a *App) minningViewInput(event *tcell.EventKey) *tcell.EventKey {
 					if err != nil {
 						a.UpdateTopText(fmt.Sprintf("Error: %v", err), errorMsg)
 					} else {
-						a.NotesId = append(a.NotesId[:a.NoteIndex], a.NotesId[a.NoteIndex+1:]...)
+						a.NotesId = append(a.NotesId[:a.NoteCursor], a.NotesId[a.NoteCursor+1:]...)
 						a.moveCard(reset)
 						a.UpdateTopText("Note removed succesfully!", infoMsg)
 					}
@@ -253,38 +268,48 @@ func (a *App) minningViewInput(event *tcell.EventKey) *tcell.EventKey {
 }
 
 func (a *App) moveCard(action int) {
+
 	switch action {
 	case nextCard:
-		if a.NoteIndex == len(a.NotesId)-1 {
+		if len(a.NotesId) == 0 || a.NoteCursor == len(a.NotesId)-1 {
 			return
 		}
-		a.NoteIndex++
+		a.NoteCursor++
 	case prevCard:
-		if a.NoteIndex == 0 {
+		if a.NoteCursor == 0 {
 			return
 		}
-		a.NoteIndex--
+		a.NoteCursor--
 	case reset:
 		if len(a.NotesId) == 0 {
 			return
 		}
 	case reload:
+		var notes *FindNotesResult
+		var err error
 		// Get Notes
-		notes, err := a.AnkiConnect.FindNotes(fmt.Sprintf("%s %s", a.Config.Query, a.SearchQuery))
+		if a.MorphMode {
+			// TODO
+			notes, err = a.AnkiConnect.FindNotes(fmt.Sprintf("%s %s", a.Config.MorphQuery, a.SearchQuery))
+		} else {
+			notes, err = a.AnkiConnect.FindNotes(fmt.Sprintf("%s %s", a.Config.Query, a.SearchQuery))
+		}
 		if err != nil {
 			a.UpdateTopText(fmt.Sprintf("Error: %v", err), errorMsg)
 		}
 
 		if len(notes.Result) == 0 {
+			a.NoteCursor = 0
+			a.NotesId = []int{}
 			a.UpdateTopText("No cards found! Try changing the query (c)", errorMsg)
 			return
 		}
 
 		a.NotesId = notes.Result
-		a.NoteIndex = 0
+		a.NoteCursor = 0
 	}
 
-	currentNotes, err := a.AnkiConnect.NotesInfo(a.NotesId[a.NoteIndex : a.NoteIndex+1])
+	currentNotes, err := a.AnkiConnect.NotesInfo(a.NotesId[a.NoteCursor : a.NoteCursor+1])
 	if err != nil {
 		fmt.Println("Error:", err, a)
 		return
@@ -303,6 +328,7 @@ func (a *App) moveCard(action int) {
 		if !exists {
 			if index == len(imageFieldsNames)-1 {
 				a.UpdateTopText(fmt.Sprintf("Error: image field ({%s}) not found!", a.Config.ImageFieldName), errorMsg)
+				a.CardImageView.SetImage(nil)
 			}
 		} else {
 			a.CurrentImageValue = pictureField.(map[string]interface{})["value"].(string)
@@ -354,6 +380,7 @@ func (a *App) playAudio() {
 		if !exists {
 			if index == len(audioFieldsNames)-1 {
 				a.UpdateTopText(fmt.Sprintf("Error: audio field ({%s}) not found!", a.Config.AudioFieldName), errorMsg)
+				speaker.Clear()
 			}
 		} else {
 			a.CurrentAudioValue = audioField.(map[string]interface{})["value"].(string)
@@ -371,14 +398,26 @@ func (a *App) playAudio() {
 			speaker.Play(beep.Seq(streamer, beep.Callback(func() {
 				defer streamer.Close()
 			})))
+
+			break
 		}
 	}
 }
 
 func (a *App) UpdateTopText(msg string, kind int) {
 	a.TopBox.Clear()
-	fmt.Fprintf(a.TopBox, "Query: %s %s\n", a.Config.Query, a.SearchQuery)
-	fmt.Fprintf(a.TopBox, "Total Notes: %d/%d\n", a.NoteIndex+1, len(a.NotesId))
+
+	if a.MorphMode {
+		fmt.Fprintf(a.TopBox, "Query: %s %s\n", a.Config.MorphQuery, a.SearchQuery)
+	} else {
+		fmt.Fprintf(a.TopBox, "Query: %s %s\n", a.Config.Query, a.SearchQuery)
+	}
+
+	fmt.Fprintf(a.TopBox, "Total Notes: %d/%d\n", a.NoteCursor+1, len(a.NotesId))
+
+	if a.MorphMode {
+		fmt.Fprintf(a.TopBox, "[blue]Morph Mode!! %s\n", a.SearchQuery)
+	}
 
 	if kind == infoMsg {
 		fmt.Fprintf(a.TopBox, "[green]%s", msg)
@@ -406,7 +445,7 @@ func (a *App) SetCardImage(path string) error {
 
 func (a *App) SetCardAsKnown() error {
 	// Get current note
-	currentNotes, err := a.AnkiConnect.NotesInfo(a.NotesId[a.NoteIndex : a.NoteIndex+1])
+	currentNotes, err := a.AnkiConnect.NotesInfo(a.NotesId[a.NoteCursor : a.NoteCursor+1])
 	if err != nil {
 		return err
 	}
@@ -441,17 +480,17 @@ func (a *App) AddAudioAndPictureToLastCard() error {
 // Show keys bindings modal
 func (a *App) showKeysBindings() {
 	// Hide/remove all other views
-	a.MinningView.RemoveItem(a.LeftPanel)
+	a.MinningView.RemoveItem(a.MinningFlex)
 
 	keysModal := tview.NewModal()
-	keysModal.SetText("Left Arrow: Previous Card\nRight Arrow: Next Card\nk: Mark as known\nd: Delete note\nr: (Re)play audio\ns: Add audio and image to last card created\no: Open last added card in anki\nc: Open config\na: copy morph to clipboard").
+	keysModal.SetText("Left Arrow: Previous Card\nRight Arrow: Next Card\nk: Mark as known\nd: Delete note\nr: (Re)play audio\ns: Add audio and image to last card created\no: Open last added card in anki\nc: Open config\na: Enter morph mode").
 		AddButtons([]string{"Close"}).
 		SetDoneFunc(func(buttonIndex int, buttonLabel string) {
 			a.MinningView.RemoveItem(keysModal)
 			a.tviewApp.SetFocus(a.MinningView)
 
 			// add back all other views
-			a.MinningView.AddItem(a.LeftPanel, 0, 4, false)
+			a.MinningView.AddItem(a.MinningFlex, 0, 4, false)
 		})
 
 	// align to left
@@ -464,7 +503,7 @@ func (a *App) showKeysBindings() {
 // Show search bar (it adds value to query and reloads cards)
 func (a *App) showSearchBar() {
 	// Hide/remove all other views
-	a.MinningView.RemoveItem(a.LeftPanel)
+	a.MinningView.RemoveItem(a.MinningFlex)
 
 	searchBar := tview.NewInputField()
 	searchBar.SetLabel("Search: ").SetDoneFunc(func(key tcell.Key) {
@@ -475,7 +514,7 @@ func (a *App) showSearchBar() {
 			a.moveCard(reload)
 
 			// add back all other views
-			a.MinningView.AddItem(a.LeftPanel, 0, 4, false)
+			a.MinningView.AddItem(a.MinningFlex, 0, 4, false)
 			a.tviewApp.SetFocus(a.MinningView)
 		}
 	})

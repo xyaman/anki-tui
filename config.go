@@ -13,7 +13,8 @@ const APPNAME = "ankimorph"
 const FILENAME = "config.yaml"
 
 type Config struct {
-	Query string `yaml:"query"`
+	Query      string `yaml:"query"`
+	MorphQuery string `yaml:"morphQuery"`
 
 	// All fields can be separaed by comma, and the program will use the first one that is not nil
 	MorphFieldName    string `yaml:"morphFieldName"`
@@ -68,6 +69,7 @@ func loadConfig() (*Config, error) {
 
 		config = &Config{
 			Query:             "deck:ankimorph tag:1T -tag:MT",
+			MorphQuery:        "deck:ankimorph tag:1T -tag:MT",
 			MorphFieldName:    "am-unknowns",
 			SentenceFieldName: "Expression",
 			ImageFieldName:    "Screenshot",
