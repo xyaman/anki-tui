@@ -6,6 +6,7 @@ import (
 
 func main() {
 
+
 	client := NewAnkiConnect("http://localhost:8765", 6)
 	config, err := loadConfig()
 	if err != nil {

@@ -7,6 +7,7 @@ require (
 	github.com/gopxl/beep v1.3.0
 	github.com/rivo/tview v0.0.0-20240116070845-bf8f1c43e46c
 	golang.design/x/clipboard v0.7.0
+	gopkg.in/yaml.v3 v3.0.1
 )
 
 require (
@@ -24,5 +25,4 @@ require (
 	golang.org/x/sys v0.12.0 // indirect
 	golang.org/x/term v0.9.0 // indirect
 	golang.org/x/text v0.12.0 // indirect
-	gopkg.in/yaml.v3 v3.0.1 // indirect
 )

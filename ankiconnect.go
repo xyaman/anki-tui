@@ -126,7 +126,7 @@ func (c *AnkiConnect) GetLastAddedCard() (*Note, error) {
 	return &lastNote.Result[0], nil
 }
 
-// TODO: check this
+
 func (c *AnkiConnect) guiBrowse(query string) error {
 	_, err := c.request("guiBrowse", map[string]interface{}{
 		"query": query,

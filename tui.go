@@ -18,6 +18,7 @@ import (
 	"golang.design/x/clipboard"
 )
 
+
 const (
 	nextCard = 1
 	prevCard = -1
@@ -72,6 +73,8 @@ type App struct {
 }
 
 func NewApp(config *Config, ankiconnect *AnkiConnect) (*App, error) {
+
+  tview.Styles.PrimitiveBackgroundColor = tcell.ColorDefault
 
 	// Init Speaker
 	sr := beep.SampleRate(48000)
@@ -175,9 +178,16 @@ func (a *App) minningViewInput(event *tcell.EventKey) *tcell.EventKey {
 		a.moveCard(nextCard)
 	case tcell.KeyLeft:
 		a.moveCard(prevCard)
+
+  case tcell.KeyCtrlK:
+    a.SetCardAsKnown()
 	}
 
 	switch event.Rune() {
+  case 'j':
+    a.moveCard(nextCard)
+  case 'k':
+    a.moveCard(prevCard)
 	case 'a':
 		if !a.MorphMode {
 			a.PrevNoteCursor = a.NoteCursor
@@ -244,8 +254,6 @@ func (a *App) minningViewInput(event *tcell.EventKey) *tcell.EventKey {
 			})
 
 		a.tviewApp.SetFocus(confirmationModal)
-	case 'k':
-		a.SetCardAsKnown()
 	case 'o':
 		lastAddedCard, err := a.AnkiConnect.GetLastAddedCard()
 		if err != nil {
@@ -350,7 +358,8 @@ func (a *App) moveCard(action int) {
 				a.UpdateTopText(fmt.Sprintf("Error: morph field ({%s}) not found!", a.Config.MorphFieldName), errorMsg)
 			}
 		} else {
-			fmt.Fprintf(a.BottomBox, "Morph: %s\n", morphField.(map[string]interface{})["value"])
+      tagsAsString := strings.Join(currentNote.Tags, ", ")
+      fmt.Fprintf(a.BottomBox, "Morph: %s || Tags: %s\n", morphField.(map[string]interface{})["value"], tagsAsString)
 		}
 	}
 
@@ -459,6 +468,7 @@ func (a *App) SetCardAsKnown() error {
 	}
 	a.UpdateTopText("Card marked as known!", infoMsg)
 
+
 	return nil
 }
 
@@ -473,6 +483,16 @@ func (a *App) AddAudioAndPictureToLastCard() error {
 		a.Config.MinningAudioFieldName: a.CurrentAudioValue,
 		a.Config.MinningImageFieldName: a.CurrentImageValue,
 	})
+
+  // Add tag (except 1T, MT, 0T)
+  for _, tag := range a.CurrentNote.Tags {
+    if tag != "1T" && tag != "MT" && tag != "0T" {
+      err = a.AnkiConnect.AddTags(lastAddedCard.NoteID, tag)
+      if err != nil {
+        return err
+      }
+    }
+  }
 
 	return err
 }

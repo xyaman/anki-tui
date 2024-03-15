@@ -12,6 +12,7 @@ type NotesInfoResult struct {
 
 type Note struct {
 	NoteID    int      `json:"noteId"`
+	CardID    int      `json:"cardId"`
 	Fields    Fields   `json:"fields"`
 	Tags      []string `json:"tags"`
 	ModelName string   `json:"modelName"`
