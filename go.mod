@@ -15,10 +15,14 @@ require (
 	github.com/ebitengine/purego v0.5.0 // indirect
 	github.com/gdamore/encoding v1.0.0 // indirect
 	github.com/hajimehoshi/go-mp3 v0.3.4 // indirect
+	github.com/ikawaha/kagome-dict v1.0.9 // indirect
+	github.com/ikawaha/kagome-dict/ipa v1.0.10 // indirect
+	github.com/ikawaha/kagome/v2 v2.9.5 // indirect
 	github.com/lucasb-eyer/go-colorful v1.2.0 // indirect
 	github.com/mattn/go-runewidth v0.0.14 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/rivo/uniseg v0.4.3 // indirect
+	github.com/shogo82148/go-mecab v0.0.6 // indirect
 	golang.org/x/exp v0.0.0-20190731235908-ec7cb31e5a56 // indirect
 	golang.org/x/image v0.6.0 // indirect
 	golang.org/x/mobile v0.0.0-20230301163155-e0f57694e12c // indirect

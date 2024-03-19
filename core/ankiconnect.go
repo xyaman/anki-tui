@@ -1,10 +1,12 @@
-package main
+package core
 
 import (
 	"bytes"
 	"encoding/json"
 	"io"
 	"net/http"
+
+  "github.com/xyaman/anki-tui/models"
 )
 
 // AnkiConnect is the Client for the AnkiConnect API
@@ -44,7 +46,7 @@ func (c *AnkiConnect) request(action string, params interface{}) ([]byte, error)
 	return io.ReadAll(resp.Body)
 }
 
-func (c *AnkiConnect) FindNotes(query string) (*FindNotesResult, error) {
+func (c *AnkiConnect) FindNotes(query string) (*models.FindNotesResult, error) {
 	result, err := c.request("findNotes", map[string]interface{}{
 		"query": query,
 	})
@@ -52,7 +54,7 @@ func (c *AnkiConnect) FindNotes(query string) (*FindNotesResult, error) {
 		return nil, err
 	}
 
-	var notes *FindNotesResult
+	var notes *models.FindNotesResult
 	err = json.Unmarshal(result, &notes)
 	if err != nil {
 		return nil, err
@@ -61,7 +63,7 @@ func (c *AnkiConnect) FindNotes(query string) (*FindNotesResult, error) {
 	return notes, nil
 }
 
-func (c *AnkiConnect) NotesInfo(notes []int) (*NotesInfoResult, error) {
+func (c *AnkiConnect) NotesInfo(notes []int) (*models.NotesInfoResult, error) {
 	result, err := c.request("notesInfo", map[string]interface{}{
 		"notes": notes,
 	})
@@ -69,7 +71,7 @@ func (c *AnkiConnect) NotesInfo(notes []int) (*NotesInfoResult, error) {
 		return nil, err
 	}
 
-	var notesInfo *NotesInfoResult
+	var notesInfo *models.NotesInfoResult
 	err = json.Unmarshal(result, &notesInfo)
 	if err != nil {
 		return nil, err
@@ -85,7 +87,7 @@ func (c *AnkiConnect) DeleteNotes(cards []int) error {
 	return err
 }
 
-func (c *AnkiConnect) UpdateNoteFields(noteID int, fields Fields) error {
+func (c *AnkiConnect) UpdateNoteFields(noteID int, fields models.Fields) error {
 	_, err := c.request("updateNoteFields", map[string]interface{}{
 		"note": map[string]interface{}{
 			"id":     noteID,
@@ -104,7 +106,7 @@ func (c *AnkiConnect) AddTags(noteID int, tag string) error {
 	return err
 }
 
-func (c *AnkiConnect) GetLastAddedCard() (*Note, error) {
+func (c *AnkiConnect) GetLastAddedCard() (*models.Note, error) {
 	lastNotes, err := c.FindNotes("added:2")
 	if err != nil {
 		return nil, err
@@ -127,7 +129,7 @@ func (c *AnkiConnect) GetLastAddedCard() (*Note, error) {
 }
 
 
-func (c *AnkiConnect) guiBrowse(query string) error {
+func (c *AnkiConnect) GuiBrowse(query string) error {
 	_, err := c.request("guiBrowse", map[string]interface{}{
 		"query": query,
 	})

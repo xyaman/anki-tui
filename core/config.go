@@ -1,4 +1,4 @@
-package main
+package core
 
 import (
 	"fmt"
@@ -12,9 +12,15 @@ import (
 const APPNAME = "ankimorph"
 const FILENAME = "config.yaml"
 
+const (
+	ConfigWasUpdated int = iota
+)
+
 type Config struct {
-	Query      string `yaml:"query"`
-	MorphQuery string `yaml:"morphQuery"`
+	InfoChannel chan int `yaml:"-"`
+
+	MinningQuery string `yaml:"minningQuery"`
+	SearchQuery  string `yaml:"searchQuery"`
 
 	// All fields can be separaed by comma, and the program will use the first one that is not nil
 	MorphFieldName    string `yaml:"morphFieldName"`
@@ -68,11 +74,13 @@ func loadConfig() (*Config, error) {
 		}
 
 		config = &Config{
-			Query:             "deck:ankimorph tag:1T -tag:MT",
-			MorphQuery:        "deck:ankimorph tag:1T -tag:MT",
+      InfoChannel: make(chan int, 1),
+
+			MinningQuery:      "deck:morphman::86 tag:1T -tag:MT",
+			SearchQuery:       "deck:morphman tag:1T -tag:MT",
 			MorphFieldName:    "am-unknowns",
 			SentenceFieldName: "Expression",
-			ImageFieldName:    "Screenshot",
+			ImageFieldName:    "Image,Picture",
 			AudioFieldName:    "Audio_Sentence",
 			KnownTag:          "am-known-manually",
 
@@ -96,7 +104,7 @@ func loadConfig() (*Config, error) {
 	return config, nil
 }
 
-func (c *Config) save() error {
+func (c *Config) Save() error {
 	var configPath string
 
 	// Get os name

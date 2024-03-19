@@ -1,3 +1,4 @@
+//go:run exclude
 package main
 
 import (
@@ -16,8 +17,10 @@ import (
 	"github.com/gopxl/beep/speaker"
 	"github.com/rivo/tview"
 	"golang.design/x/clipboard"
-)
 
+	"github.com/xyaman/anki-tui/core"
+	"github.com/xyaman/anki-tui/models"
+)
 
 const (
 	nextCard = 1
@@ -38,10 +41,10 @@ const (
 
 type App struct {
 	tviewApp    *tview.Application
-	AnkiConnect *AnkiConnect
+	AnkiConnect *core.AnkiConnect
 
 	// Config struct + form fields
-	Config *Config
+	Config *core.Config
 
 	MinningView *tview.Flex
 	Pages       *tview.Pages
@@ -60,7 +63,7 @@ type App struct {
 
 	NotesId     []int
 	NoteCursor  int
-	CurrentNote *Note
+	CurrentNote *models.Note
 
 	// Fields tracking
 	CurrentImageValue string
@@ -72,9 +75,9 @@ type App struct {
 	PrevNoteCursor int
 }
 
-func NewApp(config *Config, ankiconnect *AnkiConnect) (*App, error) {
+func NewApp(config *core.Config, ankiconnect *core.AnkiConnect) (*App, error) {
 
-  tview.Styles.PrimitiveBackgroundColor = tcell.ColorDefault
+	tview.Styles.PrimitiveBackgroundColor = tcell.ColorDefault
 
 	// Init Speaker
 	sr := beep.SampleRate(48000)
@@ -85,12 +88,10 @@ func NewApp(config *Config, ankiconnect *AnkiConnect) (*App, error) {
 		return nil, err
 	}
 
-	pages := tview.NewPages()
-
-	tviewApp := tview.NewApplication().SetRoot(pages, true).SetFocus(pages)
+	core.App = core.NewAnkiTui()
 
 	app := &App{
-		tviewApp:    tviewApp,
+		tviewApp:    core.App.Tview,
 		AnkiConnect: ankiconnect,
 
 		Config: config,
@@ -99,7 +100,7 @@ func NewApp(config *Config, ankiconnect *AnkiConnect) (*App, error) {
 		NoteCursor:     0,
 		collectionPath: collectionPath,
 
-		Pages: pages,
+		Pages: core.App.PageHolder,
 		// Views are initialized in setupViews
 	}
 
@@ -130,8 +131,8 @@ func (a *App) setupViews() {
 
 	// Config Form
 	configForm := tview.NewForm()
-	configForm.AddInputField("Query", a.Config.Query, 0, nil, nil).
-		AddInputField("Morph Query*", a.Config.MorphQuery, 0, nil, nil).
+	configForm.AddInputField("Query", a.Config.MinningQuery, 0, nil, nil).
+		AddInputField("Morph Query*", a.Config.SearchQuery, 0, nil, nil).
 		AddInputField("Morph Field Name", a.Config.MorphFieldName, 0, nil, nil).
 		AddInputField("Sentence Field Name", a.Config.SentenceFieldName, 0, nil, nil).
 		AddInputField("Audio Field Name", a.Config.AudioFieldName, 0, nil, nil).
@@ -141,8 +142,8 @@ func (a *App) setupViews() {
 		AddInputField("Minning Image Field Name", a.Config.MinningImageFieldName, 0, nil, nil).
 		AddCheckbox("Play Audio Automatically", a.Config.PlayAudioAutomatically, nil).
 		AddButton("Save", func() {
-			a.Config.Query = configForm.GetFormItemByLabel("Query").(*tview.InputField).GetText()
-			a.Config.MorphQuery = configForm.GetFormItemByLabel("Morph Query*").(*tview.InputField).GetText()
+			a.Config.MinningQuery = configForm.GetFormItemByLabel("Query").(*tview.InputField).GetText()
+			a.Config.SearchQuery = configForm.GetFormItemByLabel("Morph Query*").(*tview.InputField).GetText()
 			a.Config.MorphFieldName = configForm.GetFormItemByLabel("Morph Field Name").(*tview.InputField).GetText()
 			a.Config.SentenceFieldName = configForm.GetFormItemByLabel("Sentence Field Name").(*tview.InputField).GetText()
 			a.Config.AudioFieldName = configForm.GetFormItemByLabel("Audio Field Name").(*tview.InputField).GetText()
@@ -152,7 +153,7 @@ func (a *App) setupViews() {
 			a.Config.MinningImageFieldName = configForm.GetFormItemByLabel("Minning Image Field Name").(*tview.InputField).GetText()
 			a.Config.PlayAudioAutomatically = configForm.GetFormItemByLabel("Play Audio Automatically").(*tview.Checkbox).IsChecked()
 
-			err := a.Config.save()
+			err := a.Config.Save()
 			if err != nil {
 				a.TopBox.SetText(fmt.Sprintf("Error saving config: %v", err))
 			}
@@ -179,15 +180,15 @@ func (a *App) minningViewInput(event *tcell.EventKey) *tcell.EventKey {
 	case tcell.KeyLeft:
 		a.moveCard(prevCard)
 
-  case tcell.KeyCtrlK:
-    a.SetCardAsKnown()
+	case tcell.KeyCtrlK:
+		a.SetCardAsKnown()
 	}
 
 	switch event.Rune() {
-  case 'j':
-    a.moveCard(nextCard)
-  case 'k':
-    a.moveCard(prevCard)
+	case 'j':
+		a.moveCard(nextCard)
+	case 'k':
+		a.moveCard(prevCard)
 	case 'a':
 		if !a.MorphMode {
 			a.PrevNoteCursor = a.NoteCursor
@@ -259,7 +260,7 @@ func (a *App) minningViewInput(event *tcell.EventKey) *tcell.EventKey {
 		if err != nil {
 			a.UpdateTopText(fmt.Sprintf("Can't get last added card: %v", err), errorMsg)
 		}
-		a.AnkiConnect.guiBrowse(fmt.Sprintf("nid:%d", lastAddedCard.NoteID))
+		a.AnkiConnect.GuiBrowse(fmt.Sprintf("nid:%d", lastAddedCard.NoteID))
 	case 'c':
 		// app.showConfigForm()
 		// Send backspace event
@@ -293,14 +294,14 @@ func (a *App) moveCard(action int) {
 			return
 		}
 	case reload:
-		var notes *FindNotesResult
+		var notes *models.FindNotesResult
 		var err error
 		// Get Notes
 		if a.MorphMode {
 			// TODO
-			notes, err = a.AnkiConnect.FindNotes(fmt.Sprintf("%s %s", a.Config.MorphQuery, a.SearchQuery))
+			notes, err = a.AnkiConnect.FindNotes(fmt.Sprintf("%s %s", a.Config.MinningQuery, a.SearchQuery))
 		} else {
-			notes, err = a.AnkiConnect.FindNotes(fmt.Sprintf("%s %s", a.Config.Query, a.SearchQuery))
+			notes, err = a.AnkiConnect.FindNotes(fmt.Sprintf("%s %s", a.Config.SearchQuery, a.SearchQuery))
 		}
 		if err != nil {
 			a.UpdateTopText(fmt.Sprintf("Error: %v", err), errorMsg)
@@ -358,8 +359,8 @@ func (a *App) moveCard(action int) {
 				a.UpdateTopText(fmt.Sprintf("Error: morph field ({%s}) not found!", a.Config.MorphFieldName), errorMsg)
 			}
 		} else {
-      tagsAsString := strings.Join(currentNote.Tags, ", ")
-      fmt.Fprintf(a.BottomBox, "Morph: %s || Tags: %s\n", morphField.(map[string]interface{})["value"], tagsAsString)
+			tagsAsString := strings.Join(currentNote.Tags, ", ")
+			fmt.Fprintf(a.BottomBox, "Morph: %s || Tags: %s\n", morphField.(map[string]interface{})["value"], tagsAsString)
 		}
 	}
 
@@ -417,9 +418,9 @@ func (a *App) UpdateTopText(msg string, kind int) {
 	a.TopBox.Clear()
 
 	if a.MorphMode {
-		fmt.Fprintf(a.TopBox, "Query: %s %s\n", a.Config.MorphQuery, a.SearchQuery)
+		fmt.Fprintf(a.TopBox, "Query: %s %s\n", a.Config.MinningQuery, a.SearchQuery)
 	} else {
-		fmt.Fprintf(a.TopBox, "Query: %s %s\n", a.Config.Query, a.SearchQuery)
+		fmt.Fprintf(a.TopBox, "Query: %s %s\n", a.Config.SearchQuery, a.SearchQuery)
 	}
 
 	fmt.Fprintf(a.TopBox, "Total Notes: %d/%d\n", a.NoteCursor+1, len(a.NotesId))
@@ -468,7 +469,6 @@ func (a *App) SetCardAsKnown() error {
 	}
 	a.UpdateTopText("Card marked as known!", infoMsg)
 
-
 	return nil
 }
 
@@ -479,20 +479,20 @@ func (a *App) AddAudioAndPictureToLastCard() error {
 		return err
 	}
 
-	err = a.AnkiConnect.UpdateNoteFields(lastAddedCard.NoteID, Fields{
+	err = a.AnkiConnect.UpdateNoteFields(lastAddedCard.NoteID, models.Fields{
 		a.Config.MinningAudioFieldName: a.CurrentAudioValue,
 		a.Config.MinningImageFieldName: a.CurrentImageValue,
 	})
 
-  // Add tag (except 1T, MT, 0T)
-  for _, tag := range a.CurrentNote.Tags {
-    if tag != "1T" && tag != "MT" && tag != "0T" {
-      err = a.AnkiConnect.AddTags(lastAddedCard.NoteID, tag)
-      if err != nil {
-        return err
-      }
-    }
-  }
+	// Add tag (except 1T, MT, 0T)
+	for _, tag := range a.CurrentNote.Tags {
+		if tag != "1T" && tag != "MT" && tag != "0T" {
+			err = a.AnkiConnect.AddTags(lastAddedCard.NoteID, tag)
+			if err != nil {
+				return err
+			}
+		}
+	}
 
 	return err
 }

@@ -2,26 +2,19 @@ package main
 
 import (
 	"fmt"
+
+	"github.com/xyaman/anki-tui/core"
+	"github.com/xyaman/anki-tui/ui"
 )
 
 func main() {
 
+	core.App = core.NewAnkiTui()
 
-	client := NewAnkiConnect("http://localhost:8765", 6)
-	config, err := loadConfig()
-	if err != nil {
-		fmt.Println("Error: ", err)
-		return
-	}
-
-	app, err := NewApp(config, client)
-	if err != nil {
-		fmt.Println("Error: ", err)
-		return
-	}
-
-	if err := app.tviewApp.Run(); err != nil {
-		fmt.Println("Error: ", err)
-		return
-	}
+  ui.ShowMainPage()
+  
+  if err := core.App.Tview.Run(); err != nil {
+    fmt.Println("Error: ", err)
+    return
+  }
 }
