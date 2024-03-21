@@ -35,7 +35,7 @@ type Config struct {
 	PlayAudioAutomatically bool `yaml:"playAudioAutomatically"`
 }
 
-func loadConfig() (*Config, error) {
+func LoadConfig() (*Config, error) {
 
 	var configPath string
 	var config *Config

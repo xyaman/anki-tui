@@ -2,397 +2,256 @@ package ui
 
 import (
 	"fmt"
-	"image"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 
-	"github.com/gdamore/tcell/v2"
+	"github.com/charmbracelet/bubbles/table"
+	"github.com/charmbracelet/bubbles/textinput"
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/gopxl/beep"
 	"github.com/gopxl/beep/generators"
 	"github.com/gopxl/beep/mp3"
 	"github.com/gopxl/beep/speaker"
-	"github.com/rivo/tview"
-	"golang.design/x/clipboard"
-
-	"github.com/ikawaha/kagome-dict/ipa"
-	"github.com/ikawaha/kagome/v2/tokenizer"
-
 	"github.com/xyaman/anki-tui/core"
 	"github.com/xyaman/anki-tui/models"
 )
 
-type LoadEvent int
-
-const (
-	NextNote LoadEvent = iota
-	PreviousNote
-	FullReload
-	Refresh
-)
-
 type QueryPage struct {
-	// Maybe add the posibility to use table to show the results
-	Table      *tview.Table
-	TableMode  bool
-	QueryLimit int
+	table  table.Model
+	width  int
+	height int
 
-	// TODO: Change the type
-	MinningView tview.Primitive
-	TopBar      *tview.TextView
-	CardImage   *tview.Image
+	currentEnd int
 
-	CardInfo       *tview.TextView
-	SentenceCursor int
-	PitchDrops     []int
-	// This string is saved in case we want to copy to the clipboard
-	PitchSentence string
+	notes []models.Note
 
-	// Status info
-	Query       string
-	NotesId     []int
-	NotesInfo   []models.Note
-	NoteCursor  int
-	CurrentNote *models.Note
+	notePage   NotePage
+	configPage QueryPageConfig
+	isConfig   bool
+	isNote     bool
 
-	NoteSentence  string
-	NoteMorphs    string
-	NoteAudioPath string
-	NoteImagePath string
-
-	// Audio
-	AudioCtrl *beep.Ctrl
-
-	KeysBuffer []rune
+	audioCtrl *beep.Ctrl
 }
 
-func ShowQueryPage() {
+func NewQueryPage() QueryPage {
 
-	queryPage := newQueryPage()
-	core.App.Tview.SetFocus(queryPage.MinningView)
-	core.App.PageHolder.AddAndSwitchToPage(core.QueryPageID, queryPage.MinningView, true)
+	t := table.New(
+		table.WithFocused(true),
+		table.WithColumns([]table.Column{
+			{Title: "#", Width: 4},
+			{Title: "Sentence", Width: 50},
+			{Title: "Morphs", Width: 20},
+			{Title: "Tags", Width: 50},
+		}))
+
+	s := table.DefaultStyles()
+	s.Header = s.Header.
+		BorderStyle(lipgloss.NormalBorder()).
+		BorderForeground(lipgloss.Color("240")).
+		BorderBottom(true).
+		Bold(false)
+	s.Selected = s.Selected.
+		Foreground(lipgloss.Color("229")).
+		Background(lipgloss.Color("57")).
+		Bold(false)
+	t.SetStyles(s)
+
+	return QueryPage{
+		table:      t,
+		notes:      []models.Note{},
+		notePage:   NewNotePage(),
+		configPage: NewQueryPageConfig(),
+		isConfig:   false,
+		currentEnd: 100,
+	}
 }
 
-func newQueryPage() *QueryPage {
-
-	topbar := tview.NewTextView().SetScrollable(false)
-
-	cardimage := tview.NewImage()
-	cardinfo := tview.NewTextView().SetScrollable(false).SetDynamicColors(true)
-
-	table := tview.NewTable().
-		SetSelectable(true, false).
-		SetSelectedStyle(tcell.StyleDefault.Foreground(tcell.ColorGreen).Background(tcell.ColorBlack)).SetFixed(1, 1).
-    SetSeparator('|').
-    SetBordersColor(tcell.ColorGray)
-
-	tablemode := true
-
-  minningview := tview.NewFlex().SetDirection(0).
-  AddItem(topbar, 3, 1, false).
-  AddItem(tview.NewFlex().
-    AddItem(nil, 0, 1, false).
-    AddItem(table, 0, 3, true).
-    AddItem(nil, 0, 1, false), 0, 1, true)
-
-	queryPage := &QueryPage{
-		Table:      table,
-		TableMode:  tablemode,
-		QueryLimit: 50,
-
-		MinningView: minningview,
-		TopBar:      topbar,
-		CardImage:   cardimage,
-		CardInfo:    cardinfo,
-	}
-
-	minningview.SetInputCapture(queryPage.setupInputCapture)
-	// cardinfo.SetInputCapture(queryPage.setupCardInfoInput)
-	// queryPage.load(FullReload)
-
-	queryPage.fetchAllNotes()
-
-	return queryPage
+func (m QueryPage) Init() tea.Cmd {
+	return tea.Batch(FetchNotes(core.App.Config.MinningQuery, 0, 100), m.configPage.Init())
 }
 
-func (qp *QueryPage) fetchAllNotes() {
-	// Fetch all ids
-	notesResult, err := core.App.AnkiConnect.FindNotes(core.App.Config.MinningQuery)
-	if err != nil {
-		panic(err)
-	}
+func (m QueryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
-	if len(notesResult.Result) == 0 {
-		return
-	}
+	var k string
 
-	qp.NotesId = notesResult.Result[:qp.QueryLimit]
-	fmt.Fprintf(qp.TopBar, "Total notes: %d", len(qp.NotesId))
-
-	notes, err := core.App.AnkiConnect.NotesInfo(qp.NotesId)
-	if err != nil {
-		panic(err)
-	}
-
-	qp.NotesInfo = notes.Result
-
-	// Add headers
-	qp.Table.SetCell(0, 0, tview.NewTableCell("#").SetAlign(tview.AlignCenter))
-	qp.Table.SetCell(0, 1, tview.NewTableCell("Sentence").SetAlign(tview.AlignCenter))
-	qp.Table.SetCell(0, 2, tview.NewTableCell("Morphs").SetAlign(tview.AlignCenter))
-	qp.Table.SetCell(0, 3, tview.NewTableCell("Tags").SetAlign(tview.AlignCenter))
-
-	for i, note := range qp.NotesInfo {
-		sentence, morphs := qp.getFields(&note)
-		qp.Table.SetCell(i+1, 0, tview.NewTableCell(fmt.Sprintf("#%d", i+1)).SetAlign(tview.AlignCenter))
-		qp.Table.SetCell(i+1, 2, tview.NewTableCell(morphs).SetAlign(tview.AlignCenter))
-		qp.Table.SetCell(i+1, 1, tview.NewTableCell(sentence).SetAlign(tview.AlignCenter))
-		qp.Table.SetCell(i+1, 3, tview.NewTableCell(strings.Join(note.Tags, ", ")).SetAlign(tview.AlignCenter))
-	}
-
-  qp.Table.Select(1, 0)
-}
-
-func (qp *QueryPage) setupInputCapture(event *tcell.EventKey) *tcell.EventKey {
-  
-	core.App.Tview.Sync()
-
-	// implement vim-like go to number keybind
-	if event.Rune() >= '0' && event.Rune() <= '9' {
-		qp.KeysBuffer = append(qp.KeysBuffer, event.Rune())
-    qp.TopBar.Clear()
-    fmt.Fprintf(qp.TopBar, "KeysBuffer: %s", string(qp.KeysBuffer))
-  
-    strnumber := string(qp.KeysBuffer)
-    number, err := strconv.Atoi(strnumber)
-    if err == nil && number > 0 && number <= len(qp.NotesInfo) {
-      qp.Table.Select(number, 0)
-    }
-
-		return event
-	}
-  qp.TopBar.Clear()
-  fmt.Fprintf(qp.TopBar, "Query: %s", core.App.Config.MinningQuery)
-	qp.KeysBuffer = qp.KeysBuffer[:0]
-
-	switch event.Rune() {
-	case 'r':
-		// get selection
-		row, _ := qp.Table.GetSelection()
-    if row == 0 {
-      return event
-    }
-		qp.CurrentNote = &qp.NotesInfo[row-1]
-		qp.playAudio()
-	}
-
-	return event
-
-	switch event.Rune() {
-	case 'r':
-		qp.playAudio()
-	case 'p':
-		qp.SentenceCursor = 0
-		core.App.Tview.SetFocus(qp.CardInfo)
-	// TODO: Change to other place.. refactor
-	case 'c':
-		ShowConfigPage()
-	}
-
-	switch event.Key() {
-	case tcell.KeyCtrlK:
-		qp.markCardAsKnown()
-	}
-
-	return event
-}
-
-func (qp *QueryPage) setupCardInfoInput(event *tcell.EventKey) *tcell.EventKey {
-
-	core.App.Tview.Sync()
-	return event
-
-	switch event.Key() {
-	case tcell.KeyEsc:
-		core.App.Tview.SetFocus(qp.MinningView)
-		qp.load(Refresh)
-		return event
-	}
-	// TODO: If next character rune is 1 length then move the cursor to the next character
-	// otherwise move 3 (japanese character for example)
-	switch event.Rune() {
-	case 'l':
-		if qp.SentenceCursor+3 > len(qp.PitchSentence) {
-			return event
+	switch msg := msg.(type) {
+	case tea.KeyMsg:
+		k = msg.String()
+		if k == "c" && !m.isConfig {
+			m.isConfig = true
+			return m, textinput.Blink
+		} else if k == "esc" && (m.isConfig || m.isNote) {
+			m.isConfig = false
+			m.isNote = false
+			return m, nil
 		}
-		qp.SentenceCursor += 3
 
-	case 'h':
-		if qp.SentenceCursor-3 < 0 {
-			return event
+		switch k {
+		case "p":
+			note := m.notes[m.table.Cursor()]
+			m.playAudio(&note)
+		case "o":
+      if m.isConfig{
+        break
+      }
+			note := m.notes[m.table.Cursor()]
+			m.notePage.note = &note
+			m.isNote = true
+
+			_, _, image := getNoteFields(&note)
+			m.notePage.imagepath = image
+			m.notePage.note = &note
+
+      // There is a bug in the library
+      // I need to write the size every time I change the image,
+      // and it has be different from the size used in image.update()
+      m.notePage.image.SetSize(150, 50)
+			return m, m.notePage.image.SetFileName(image)
 		}
-		qp.SentenceCursor -= 3
-	case 'a':
-		// if there is already a cursor, remove it
-		// otherwise append to the array
-		for _, pitchDrop := range qp.PitchDrops {
-			if pitchDrop == qp.SentenceCursor {
-				break
+
+	case tea.WindowSizeMsg:
+		m.width = msg.Width
+		m.height = msg.Height
+
+		m.table.SetHeight(core.App.AvailableHeight - 10)
+    // m.notePage.image.SetSize(150, 50)
+
+    return m, nil
+    
+
+	case FetchNotesMsg:
+		isReload := len(m.notes) == 0
+		m.notes = append(m.notes, msg.notes...)
+		if len(m.notes) == 0 {
+			// return m, core.Log(core.InfoLog{Type: "info", Text: "No notes found.", Seconds: 2})
+			return m, tea.Batch(
+				core.Log(core.InfoLog{Type: "info", Text: "No notes found 1!!.", Seconds: 5}),
+				core.Log(core.InfoLog{Type: "error", Text: "No notes found.", Seconds: 2}),
+			)
+		}
+
+		// Update table
+		rows := make([]table.Row, len(m.notes))
+		for i, note := range m.notes {
+			sentence, morphs, _ := getNoteFields(&note)
+			rows[i] = table.Row{
+				fmt.Sprintf("#%d", i+1),
+				sentence,
+				morphs,
+				strings.Join(note.Tags, ", "),
 			}
 		}
-		qp.PitchDrops = append(qp.PitchDrops, qp.SentenceCursor)
-	case 'u':
-		// remove last pitch
-		if len(qp.PitchDrops) > 0 {
-			qp.PitchDrops = qp.PitchDrops[:len(qp.PitchDrops)-1]
-		}
-	case 'y':
-		// Copy the sentence including the pitch drops
-		sentence, _ := qp.getFields(qp.CurrentNote)
-		output := fmt.Sprintf("%s\n %s", sentence, qp.PitchSentence)
-		clipboard.Write(clipboard.FmtText, []byte(output))
-	}
-	qp.setupCardInfo()
-	return event
-}
+		m.table.SetRows(rows)
 
-func (qp *QueryPage) setupCardInfo() {
-	// I want to be able to move the cursor to the next character
-	// I also want to show a cursor in the sentence
-
-	qp.CardInfo.Clear()
-
-	sentence, morphs := qp.getFields(qp.CurrentNote)
-
-	fmt.Fprintf(qp.CardInfo, "Morph: %s || Tags: %s\n\n", morphs, strings.Join(qp.CurrentNote.Tags, ", "))
-	fmt.Fprintf(qp.CardInfo, "Sentence: %s\n", sentence)
-
-	tagger, err := tokenizer.New(ipa.Dict(), tokenizer.OmitBosEos())
-	if err != nil {
-		panic(err)
-	}
-
-	seg := tagger.Tokenize(sentence)
-	var rawSentence string
-	for _, token := range seg {
-		reading, hasReading := token.Reading()
-		if hasReading {
-			rawSentence += reading + "　"
-		} else {
-			rawSentence += fmt.Sprintf("%s　", token.Surface)
+		if isReload {
+			m.table.SetCursor(0)
 		}
 	}
 
-	newIndex := 0
-	// Add "＼" under every pitch drop in the array
-	for _, pitchDrop := range qp.PitchDrops {
-		sign := "＼"
-		rawSentence = rawSentence[:pitchDrop] + sign + rawSentence[pitchDrop:]
-		newIndex += 3
+	// Table
+	if m.table.Cursor() == m.currentEnd-1 {
+		m.currentEnd += 100
+		return m, FetchNotes(core.App.Config.MinningQuery, m.currentEnd, m.currentEnd+100)
 	}
 
-	qp.PitchSentence = rawSentence
+	if m.isConfig {
+		newConfigPage, cmd := m.configPage.Update(msg)
+		configPage, _ := newConfigPage.(QueryPageConfig)
+		m.configPage = configPage
 
-	// Add background under the cursor index to show the cursor
-	var outputsentence string
-	for i, char := range rawSentence {
-		if i == qp.SentenceCursor {
-			outputsentence += fmt.Sprintf("[#ff0000]%s[white]", string(char))
-		} else {
-			outputsentence += string(char)
-		}
-	}
-
-	fmt.Fprintf(qp.CardInfo, "Pitch Drop: %s\n", outputsentence)
-}
-
-func (qp *QueryPage) load(event LoadEvent) {
-
-	if qp.TableMode {
-		return
-	}
-
-	qp.SentenceCursor = 0
-
-	switch event {
-	case NextNote:
-		if len(qp.NotesId) == 0 || qp.NoteCursor >= len(qp.NotesId) {
-			return
-		}
-		qp.NoteCursor++
-	case PreviousNote:
-		if len(qp.NotesId) == 0 || qp.NoteCursor <= 0 {
-			return
-		}
-		qp.NoteCursor--
-
-	// In this case we want to fetch the notes again
-	// When this event is called:
-	// - The query has changed
-	// - The page was just loaded
-	case FullReload:
-		qp.NoteCursor = 0
-
-		notesResult, err := core.App.AnkiConnect.FindNotes(core.App.Config.MinningQuery)
-		if err != nil {
-			panic(err)
-		}
-
-		if len(notesResult.Result) == 0 {
-			return
-		}
-
-		qp.NotesId = notesResult.Result
-	}
-
-	// TODO: When use table, fetch all notes
-
-	notes, err := core.App.AnkiConnect.NotesInfo(qp.NotesId[qp.NoteCursor : qp.NoteCursor+1])
-	if err != nil {
-		panic(err)
-	}
-
-	qp.CurrentNote = &notes.Result[0]
-
-	// Update ImageView
-	imageFieldsName := strings.Split(core.App.Config.ImageFieldName, ",")
-	for _, fieldName := range imageFieldsName {
-		if imageField, ok := qp.CurrentNote.Fields[fieldName]; ok {
-			imageFile := imageField.(map[string]interface{})["value"].(string)
-			imageFile = imageFile[10 : len(imageFile)-2]
-			reader, err := os.Open(filepath.Join(core.App.CollectionPath, imageFile))
+		// Exit
+		if k == "enter" && m.configPage.focused == len(m.configPage.inputs) {
+			err := m.configPage.Save()
 			if err != nil {
 				panic(err)
 			}
-			defer reader.Close()
-			m, _, err := image.Decode(reader)
+			m.isConfig = false
+			m.notes = []models.Note{}
+			m.currentEnd = 100
+			m.table.SetRows([]table.Row{})
+			return m, FetchNotes(core.App.Config.MinningQuery, 0, 100)
+		}
+		return m, cmd
+
+	}
+
+	if m.isNote {
+		newNotePage, cmd := m.notePage.Update(msg)
+		notePage, _ := newNotePage.(NotePage)
+		m.notePage = notePage
+		return m, cmd
+	}
+
+	// handle table
+	var cmd tea.Cmd
+	m.table, cmd = m.table.Update(msg)
+	return m, cmd
+}
+
+func (m QueryPage) View() string {
+	if m.isConfig {
+		renderConfig := baseStyle.Render(m.configPage.View())
+		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, renderConfig)
+	}
+
+	if m.isNote {
+		return m.notePage.View()
+	}
+
+	topbarinfo := fmt.Sprintf("Query: %s \nTotal: %d\n\n", core.App.Config.MinningQuery, len(m.notes))
+
+	var b strings.Builder
+	b.WriteString(topbarinfo)
+	b.WriteString(m.table.View())
+	renderTable := baseStyle.Render(b.String())
+	return lipgloss.PlaceHorizontal(m.width, lipgloss.Center, renderTable)
+}
+
+func (qp *QueryPage) playAudio(note *models.Note) {
+
+	// Stop previous audio
+	if qp.audioCtrl != nil {
+		speaker.Lock()
+		qp.audioCtrl.Paused = true
+		speaker.Unlock()
+	}
+
+	audioFieldsName := strings.Split(core.App.Config.AudioFieldName, ",")
+	for _, fieldName := range audioFieldsName {
+		if audioField, ok := note.Fields[fieldName]; ok {
+			audioFile := audioField.(map[string]interface{})["value"].(string)
+			audioFile = audioFile[7 : len(audioFile)-1]
+			reader, err := os.Open(filepath.Join(core.App.CollectionPath, audioFile))
 			if err != nil {
 				panic(err)
 			}
-			qp.CardImage.SetImage(m)
+			streamer, _, err := mp3.Decode(reader)
+			if err != nil {
+				panic(err)
+			}
+
+			speaker.Lock()
+			qp.audioCtrl = &beep.Ctrl{Streamer: streamer}
+			speaker.Unlock()
+
+			// Add a small silence delay
+			silence := generators.Silence(12000)
+
+			speaker.Play(beep.Seq(silence, qp.audioCtrl, beep.Callback(func() {
+				streamer.Close()
+				reader.Close()
+			})))
+
+			break
 		}
-	}
-
-	// Update CardInfo
-	qp.CardInfo.Clear()
-
-	sentence, morphs := qp.getFields(qp.CurrentNote)
-	fmt.Fprintf(qp.CardInfo, "Morph: %s || Tags: %s\n\n", morphs, strings.Join(qp.CurrentNote.Tags, ", "))
-	fmt.Fprintf(qp.CardInfo, "Sentence: %s\n", sentence)
-
-	// Update TopBar
-	qp.TopBar.Clear()
-	fmt.Fprint(qp.TopBar, "Query: "+core.App.Config.MinningQuery)
-
-	if core.App.Config.PlayAudioAutomatically {
-		qp.playAudio()
 	}
 }
 
-func (qp *QueryPage) getFields(note *models.Note) (string, string) {
+func getNoteFields(note *models.Note) (string, string, string) {
 
-	var sentence, morphs string
+	var sentence, morphs, image string
 
 	sentenceFieldsName := strings.Split(core.App.Config.SentenceFieldName, ",")
 	for _, fieldName := range sentenceFieldsName {
@@ -410,57 +269,13 @@ func (qp *QueryPage) getFields(note *models.Note) (string, string) {
 		}
 	}
 
-	return sentence, morphs
-}
-
-func (qp *QueryPage) playAudio() {
-
-	// Stop previous audio
-	if qp.AudioCtrl != nil {
-		speaker.Lock()
-		qp.AudioCtrl.Paused = true
-		speaker.Unlock()
-	}
-
-	audioFieldsName := strings.Split(core.App.Config.AudioFieldName, ",")
-	for _, fieldName := range audioFieldsName {
-		if audioField, ok := qp.CurrentNote.Fields[fieldName]; ok {
-			audioFile := audioField.(map[string]interface{})["value"].(string)
-			audioFile = audioFile[7 : len(audioFile)-1]
-			reader, err := os.Open(filepath.Join(core.App.CollectionPath, audioFile))
-			if err != nil {
-				panic(err)
-			}
-			streamer, _, err := mp3.Decode(reader)
-			if err != nil {
-				panic(err)
-			}
-
-			speaker.Lock()
-			qp.AudioCtrl = &beep.Ctrl{Streamer: streamer}
-			speaker.Unlock()
-
-			// Add a small silence delay
-			silence := generators.Silence(12000)
-
-			speaker.Play(beep.Seq(silence, qp.AudioCtrl, beep.Callback(func() {
-				streamer.Close()
-				reader.Close()
-			})))
-
-			break
+	imageFieldsName := strings.Split(core.App.Config.ImageFieldName, ",")
+	for _, fieldName := range imageFieldsName {
+		if imageField, ok := note.Fields[fieldName]; ok {
+			imagevalue := imageField.(map[string]interface{})["value"].(string)
+			image = filepath.Join(core.App.CollectionPath, imagevalue[10:len(imagevalue)-2])
 		}
 	}
-}
 
-func (qp *QueryPage) markCardAsKnown() error {
-
-	currentNote := qp.CurrentNote
-
-	err := core.App.AnkiConnect.AddTags(currentNote.NoteID, core.App.Config.KnownTag)
-	if err != nil {
-		panic(err)
-	}
-
-	return nil
+	return sentence, morphs, image
 }

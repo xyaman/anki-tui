@@ -6,7 +6,7 @@ import (
 	"io"
 	"net/http"
 
-  "github.com/xyaman/anki-tui/models"
+	"github.com/xyaman/anki-tui/models"
 )
 
 // AnkiConnect is the Client for the AnkiConnect API
@@ -46,7 +46,7 @@ func (c *AnkiConnect) request(action string, params interface{}) ([]byte, error)
 	return io.ReadAll(resp.Body)
 }
 
-func (c *AnkiConnect) FindNotes(query string) (*models.FindNotesResult, error) {
+func (c *AnkiConnect) FindNotesIDByQuery(query string) (*models.FindNotesResult, error) {
 	result, err := c.request("findNotes", map[string]interface{}{
 		"query": query,
 	})
@@ -63,9 +63,9 @@ func (c *AnkiConnect) FindNotes(query string) (*models.FindNotesResult, error) {
 	return notes, nil
 }
 
-func (c *AnkiConnect) NotesInfo(notes []int) (*models.NotesInfoResult, error) {
+func (c *AnkiConnect) FetchNotesFromID(ids []int) (*models.NotesInfoResult, error) {
 	result, err := c.request("notesInfo", map[string]interface{}{
-		"notes": notes,
+		"notes": ids,
 	})
 	if err != nil {
 		return nil, err
@@ -78,6 +78,23 @@ func (c *AnkiConnect) NotesInfo(notes []int) (*models.NotesInfoResult, error) {
 	}
 
 	return notesInfo, nil
+}
+
+func (c *AnkiConnect) FetchNotesFromQuery(query string, start int, end int) (*models.NotesInfoResult, error) {
+  notes, err := c.FindNotesIDByQuery(query)
+  if err != nil {
+    return nil, err
+  }
+
+  if len(notes.Result) == 0 {
+    return &models.NotesInfoResult{}, nil
+  } 
+
+  if end > len(notes.Result) {
+    end = len(notes.Result)
+  }
+
+  return c.FetchNotesFromID(notes.Result[start:end])
 }
 
 func (c *AnkiConnect) DeleteNotes(cards []int) error {
@@ -107,7 +124,7 @@ func (c *AnkiConnect) AddTags(noteID int, tag string) error {
 }
 
 func (c *AnkiConnect) GetLastAddedCard() (*models.Note, error) {
-	lastNotes, err := c.FindNotes("added:2")
+	lastNotes, err := c.FindNotesIDByQuery("added:2")
 	if err != nil {
 		return nil, err
 	}
@@ -120,14 +137,13 @@ func (c *AnkiConnect) GetLastAddedCard() (*models.Note, error) {
 	}
 
 	// Get Note Info
-	lastNote, err := c.NotesInfo([]int{lastNoteID})
+	lastNote, err := c.FetchNotesFromID([]int{lastNoteID})
 	if err != nil {
 		return nil, err
 	}
 
 	return &lastNote.Result[0], nil
 }
-
 
 func (c *AnkiConnect) GuiBrowse(query string) error {
 	_, err := c.request("guiBrowse", map[string]interface{}{

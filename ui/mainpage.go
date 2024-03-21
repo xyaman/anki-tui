@@ -1,40 +1,63 @@
 package ui
 
 import (
-	"github.com/rivo/tview"
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/xyaman/anki-tui/core"
+
+	"github.com/charmbracelet/bubbles/list"
+	"github.com/charmbracelet/lipgloss"
 )
 
+var docStyle = lipgloss.NewStyle().Margin(1, 2)
+
+type item struct {
+	title, desc string
+}
+
+func (i item) Title() string       { return i.title }
+func (i item) Description() string { return i.desc }
+func (i item) FilterValue() string { return i.title }
+
 type MainPage struct {
-	Flex *tview.Flex
-  List *tview.List
+	list list.Model
 }
 
-func NewMainPage() *MainPage {
-  flex := tview.NewFlex()
+func NewMainPage() MainPage {
+	items := []list.Item{
+		item{title: "Query", desc: "Show cards based on a query"},
+		item{title: "Morphs", desc: "Learn unknown morphs"},
+	}
 
-  list := tview.NewList().
-  AddItem("Query", "See all cards based on a query", 'a', func() {
-    ShowQueryPage()
-  }).
-  AddItem("Morph Query", "See all cards based on a morph query", 'b', func() {
-    //
-  }).
-  AddItem("Config", "Change the configuration", 'c', func() {
-    ShowConfigPage()
-  })
+	m := MainPage{list: list.New(items, list.NewDefaultDelegate(), 0, 0)}
+	m.list.Title = "Anki TUI"
+	m.list.DisableQuitKeybindings()
 
-  flex.AddItem(list, 0, 1, true)
-
-  return &MainPage{
-    Flex: flex,
-    List: list,
-  }
+	return m
 }
 
-func ShowMainPage() {
-  mainPage := NewMainPage()
-  core.App.PageHolder.AddAndSwitchToPage(core.MainPageID, mainPage.Flex, true)
-  core.App.Tview.SetFocus(mainPage.List)
+func (m MainPage) Init() tea.Cmd {
+	return nil
 }
 
+func (m MainPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tea.KeyMsg:
+		if msg.String() == "enter" {
+			switch m.list.Index() {
+			case 0:
+				return m, GoToPanel(QueryPanel)
+			}
+		}
+	}
+
+	h, v := docStyle.GetFrameSize()
+	m.list.SetSize(core.App.AvailableWidth-h, core.App.AvailableHeight-v)
+
+	var cmd tea.Cmd
+	m.list, cmd = m.list.Update(msg)
+	return m, cmd
+}
+
+func (m MainPage) View() string {
+	return docStyle.Render(m.list.View())
+}
