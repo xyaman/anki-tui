@@ -93,27 +93,27 @@ func (m QueryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			note := m.notes[m.table.Cursor()]
 			m.playAudio(&note)
 		case "o":
-      if m.isConfig{
-        break
-      }
+			if m.isConfig {
+				break
+			}
 			note := m.notes[m.table.Cursor()]
 			m.notePage.note = &note
 			m.isNote = true
 
 			_, _, image := getNoteFields(&note)
 			m.notePage.imagepath = image
-			m.notePage.note = &note
+			m.notePage.SetNote(&note)
 
-      // TODO: Change this to global
-      m.notePage.image.SetSize(50, 50)
-      m.notePage.image.SetImage(image)
+			// TODO: Change this to global
+			m.notePage.image.SetSize(50, 50)
+			m.notePage.image.SetImage(image)
 
-      // play audio
-      if core.App.Config.PlayAudioAutomatically {
-        m.playAudio(&note)
-      }
+			// play audio
+			if core.App.Config.PlayAudioAutomatically {
+				m.playAudio(&note)
+			}
 
-      return m, nil
+			return m, nil
 		}
 
 	case tea.WindowSizeMsg:
@@ -122,8 +122,7 @@ func (m QueryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		m.table.SetHeight(core.App.AvailableHeight - 10)
 
-    return m, nil
-    
+		return m, nil
 
 	case FetchNotesMsg:
 		isReload := len(m.notes) == 0
@@ -183,28 +182,27 @@ func (m QueryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	if m.isNote {
 
-    // if user moves, update the note
-    if k == "j" || k == "k" {
-      var cmd tea.Cmd
-      cmds := make([]tea.Cmd, 0)
-      m.table, cmd = m.table.Update(msg)
-      cmds = append(cmds, cmd)
+		// if user moves, update the note
+		if k == "j" || k == "k" {
+			var cmd tea.Cmd
+			cmds := make([]tea.Cmd, 0)
+			m.table, cmd = m.table.Update(msg)
+			cmds = append(cmds, cmd)
 
-      // update note
-      note := m.notes[m.table.Cursor()]
-      _, _, image := getNoteFields(&note)
-      m.notePage.note = &note
-      m.notePage.image.SetImage(image)
+			// update note
+			note := m.notes[m.table.Cursor()]
+			_, _, image := getNoteFields(&note)
+			m.notePage.SetNote(&note)
+			m.notePage.image.SetImage(image)
 
-      // play audio if it is enabled
-      if core.App.Config.PlayAudioAutomatically {
-        m.playAudio(&note)
-      }
-    }
+			// play audio if it is enabled
+			if core.App.Config.PlayAudioAutomatically {
+				m.playAudio(&note)
+			}
+		}
 
-
-		newNotePage, cmd := m.notePage.Update(msg)
-		m.notePage = newNotePage
+		var cmd tea.Cmd
+		m.notePage, cmd = m.notePage.Update(msg)
 		return m, cmd
 	}
 
@@ -229,7 +227,8 @@ func (m QueryPage) View() string {
 	var b strings.Builder
 	b.WriteString(topbarinfo)
 	b.WriteString(m.table.View())
-	renderTable := baseStyle.Render(b.String())
+	//renderTable := baseStyle.Render(b.String())
+	renderTable := b.String()
 	return lipgloss.PlaceHorizontal(m.width, lipgloss.Center, renderTable)
 }
 

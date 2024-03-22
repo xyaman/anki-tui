@@ -8,6 +8,8 @@ require (
 	github.com/charmbracelet/lipgloss v0.9.1
 	github.com/disintegration/imaging v1.6.2
 	github.com/gopxl/beep v1.3.0
+	github.com/ikawaha/kagome-dict/ipa v1.0.10
+	github.com/ikawaha/kagome/v2 v2.9.5
 	github.com/lucasb-eyer/go-colorful v1.2.0
 	gopkg.in/yaml.v3 v3.0.1
 )
@@ -19,6 +21,7 @@ require (
 	github.com/ebitengine/oto/v3 v3.1.0 // indirect
 	github.com/ebitengine/purego v0.5.0 // indirect
 	github.com/hajimehoshi/go-mp3 v0.3.4 // indirect
+	github.com/ikawaha/kagome-dict v1.0.9 // indirect
 	github.com/mattn/go-isatty v0.0.19 // indirect
 	github.com/mattn/go-localereader v0.0.1 // indirect
 	github.com/mattn/go-runewidth v0.0.15 // indirect

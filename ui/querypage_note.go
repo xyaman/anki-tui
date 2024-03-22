@@ -1,6 +1,8 @@
 package ui
 
 import (
+	"github.com/charmbracelet/bubbles/help"
+	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/xyaman/anki-tui/core"
@@ -8,10 +10,55 @@ import (
 	"github.com/xyaman/anki-tui/models"
 )
 
+type keyMap struct {
+	NextNote  key.Binding
+	PrevNote  key.Binding
+	PlayAudio key.Binding
+	Return    key.Binding
+}
+
+func (k keyMap) ShortHelp() []key.Binding {
+	return []key.Binding{k.NextNote, k.PrevNote, k.PlayAudio, k.Return}
+}
+
+func (k keyMap) FullHelp() [][]key.Binding {
+	return [][]key.Binding{
+		k.ShortHelp(),
+	}
+}
+
+var keys = keyMap{
+	NextNote: key.NewBinding(
+		key.WithKeys("j"),
+		key.WithHelp("j", "Next note"),
+	),
+	PrevNote: key.NewBinding(
+		key.WithKeys("k"),
+		key.WithHelp("k", "Previous note"),
+	),
+	PlayAudio: key.NewBinding(
+		key.WithKeys("p"),
+		key.WithHelp("p", "Play audio"),
+	),
+	Return: key.NewBinding(
+		key.WithKeys("esc"),
+		key.WithHelp("esc", "Return to main menu"),
+	),
+}
+
 type NotePage struct {
+	image image.Model
+	help  help.Model
+	keys  keyMap
+
 	note      *models.Note
-	image     image.Model
 	imagepath string
+
+	// Pitch
+	pitchMode     bool
+	pitchCursor   int
+	pitchDrops    []int
+	pitchSentence string
 }
 
 func NewNotePage() NotePage {
@@ -19,8 +66,9 @@ func NewNotePage() NotePage {
 	image := image.New()
 
 	return NotePage{
-		note:  nil,
 		image: image,
+		help:  help.New(),
+		note:  nil,
 	}
 }
 
@@ -31,26 +79,109 @@ func (m NotePage) Init() tea.Cmd {
 func (m NotePage) Update(msg tea.Msg) (NotePage, tea.Cmd) {
 
 	var cmd tea.Cmd
-  image, cmd := m.image.Update(msg)
-  m.image = image
+	image, cmd := m.image.Update(msg)
+	m.image = image
+
+	switch msg := msg.(type) {
+	case tea.KeyMsg:
+		switch msg.String() {
+		case "i":
+			if m.pitchMode {
+				m.pitchCursor = 0
+				m.pitchDrops = []int{}
+			}
+			m.pitchMode = !m.pitchMode
+			sentence, _, _ := getNoteFields(m.note)
+			m.pitchSentence = core.ParseJpSentence(sentence)
+		case "l":
+			if m.pitchMode {
+				m.pitchCursor += 3
+				if m.pitchCursor < len(m.pitchSentence)-1 && m.pitchSentence[m.pitchCursor:m.pitchCursor+3] == "　" {
+					m.pitchCursor += 3
+				}
+			}
+		case "h":
+			if m.pitchMode {
+				if m.pitchCursor > 3 && m.pitchSentence[m.pitchCursor-3:m.pitchCursor] == "　" {
+					m.pitchCursor -= 3
+				}
+				m.pitchCursor -= 3
+				if m.pitchCursor < 0 {
+					m.pitchCursor = 0
+				}
+			}
+		case "a":
+			if m.pitchMode {
+				m.pitchDrops = append(m.pitchDrops, m.pitchCursor)
+			}
+		case "u":
+			if m.pitchMode {
+				if len(m.pitchDrops) > 0 {
+					m.pitchDrops = m.pitchDrops[:len(m.pitchDrops)-1]
+				}
+
+			}
+		}
+	}
 
 	return m, cmd
 }
 
 func (m NotePage) View() string {
-	// Show image
-	// Show sentence
-	// Show morphs
-	// Show tags
 
 	// Render a box using lipgloss
 	noteStyle := lipgloss.NewStyle().
 		BorderStyle(lipgloss.NormalBorder()).
 		BorderForeground(lipgloss.Color("56"))
 
-  sentence, _, _ := getNoteFields(m.note)
-  b := lipgloss.JoinVertical(lipgloss.Center, m.image.View(), sentence)
+	sentence, morphs, _ := getNoteFields(m.note)
+	if morphs == "" {
+		morphs = "-"
+	}
+
+	var newSentence string
+	if m.pitchMode {
+		newSentence += "pitch: "
+
+		// Add pitch drops
+		for i, c := range m.pitchSentence {
+
+			// Set color to see the cursor
+			if i == m.pitchCursor {
+				newSentence += lipgloss.NewStyle().Foreground(lipgloss.Color("241")).Render(string(c))
+			} else {
+				newSentence += string(c)
+			}
+
+			for _, drop := range m.pitchDrops {
+				if i == drop {
+					newSentence += "↓"
+				}
+			}
+		}
+	}
+
+	// Center image, but align left image and text
+	b := lipgloss.JoinVertical(
+		lipgloss.Top,
+		lipgloss.PlaceHorizontal(len(sentence), lipgloss.Center, m.image.View()),
+		lipgloss.JoinVertical(lipgloss.Top, "morphs: "+morphs, "sentence: "+sentence, newSentence),
+	)
+
+	var info string
+	if m.pitchMode && m.pitchCursor-3 >= 0 {
+		info = "Note\n"
+	}
 
 	renderImage := noteStyle.Render(b)
-	return lipgloss.Place(core.App.Width, core.App.Height, lipgloss.Center, lipgloss.Center, renderImage)
+	main := lipgloss.Place(core.App.Width, core.App.Height, lipgloss.Center, lipgloss.Center, info+renderImage)
+
+	return docStyle.Render(lipgloss.JoinVertical(lipgloss.Top, main, m.help.View(keys)))
+}
+
+func (m *NotePage) SetNote(note *models.Note) {
+	m.note = note
+	m.pitchMode = false
+	m.pitchCursor = 0
+	m.pitchDrops = []int{}
 }
