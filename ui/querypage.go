@@ -104,11 +104,16 @@ func (m QueryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.notePage.imagepath = image
 			m.notePage.note = &note
 
-      // There is a bug in the library
-      // I need to write the size every time I change the image,
-      // and it has be different from the size used in image.update()
-      m.notePage.image.SetSize(150, 50)
-			return m, m.notePage.image.SetFileName(image)
+      // TODO: Change this to global
+      m.notePage.image.SetSize(50, 50)
+      m.notePage.image.SetImage(image)
+
+      // play audio
+      if core.App.Config.PlayAudioAutomatically {
+        m.playAudio(&note)
+      }
+
+      return m, nil
 		}
 
 	case tea.WindowSizeMsg:
@@ -116,7 +121,6 @@ func (m QueryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.height = msg.Height
 
 		m.table.SetHeight(core.App.AvailableHeight - 10)
-    // m.notePage.image.SetSize(150, 50)
 
     return m, nil
     
@@ -157,10 +161,6 @@ func (m QueryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	if m.isConfig {
-		newConfigPage, cmd := m.configPage.Update(msg)
-		configPage, _ := newConfigPage.(QueryPageConfig)
-		m.configPage = configPage
-
 		// Exit
 		if k == "enter" && m.configPage.focused == len(m.configPage.inputs) {
 			err := m.configPage.Save()
@@ -173,14 +173,38 @@ func (m QueryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.table.SetRows([]table.Row{})
 			return m, FetchNotes(core.App.Config.MinningQuery, 0, 100)
 		}
-		return m, cmd
 
+		newConfigPage, cmd := m.configPage.Update(msg)
+		configPage, _ := newConfigPage.(QueryPageConfig)
+		m.configPage = configPage
+
+		return m, cmd
 	}
 
 	if m.isNote {
+
+    // if user moves, update the note
+    if k == "j" || k == "k" {
+      var cmd tea.Cmd
+      cmds := make([]tea.Cmd, 0)
+      m.table, cmd = m.table.Update(msg)
+      cmds = append(cmds, cmd)
+
+      // update note
+      note := m.notes[m.table.Cursor()]
+      _, _, image := getNoteFields(&note)
+      m.notePage.note = &note
+      m.notePage.image.SetImage(image)
+
+      // play audio if it is enabled
+      if core.App.Config.PlayAudioAutomatically {
+        m.playAudio(&note)
+      }
+    }
+
+
 		newNotePage, cmd := m.notePage.Update(msg)
-		notePage, _ := newNotePage.(NotePage)
-		m.notePage = notePage
+		m.notePage = newNotePage
 		return m, cmd
 	}
 

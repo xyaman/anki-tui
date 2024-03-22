@@ -3,8 +3,8 @@ package ui
 import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/mistakenelf/teacup/image"
 	"github.com/xyaman/anki-tui/core"
+	"github.com/xyaman/anki-tui/image"
 	"github.com/xyaman/anki-tui/models"
 )
 
@@ -16,7 +16,7 @@ type NotePage struct {
 
 func NewNotePage() NotePage {
 
-	image := image.New(true, true, lipgloss.AdaptiveColor{Light: "#000000", Dark: "#ffffff"})
+	image := image.New()
 
 	return NotePage{
 		note:  nil,
@@ -28,13 +28,12 @@ func (m NotePage) Init() tea.Cmd {
 	return nil
 }
 
-func (m NotePage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-
-  // este tamaño se muestra
-  m.image.SetSize(core.App.Width, core.App.Height)
+func (m NotePage) Update(msg tea.Msg) (NotePage, tea.Cmd) {
 
 	var cmd tea.Cmd
-	m.image, cmd = m.image.Update(msg)
+  image, cmd := m.image.Update(msg)
+  m.image = image
+
 	return m, cmd
 }
 
@@ -44,5 +43,14 @@ func (m NotePage) View() string {
 	// Show morphs
 	// Show tags
 
-	return m.image.View()
+	// Render a box using lipgloss
+	noteStyle := lipgloss.NewStyle().
+		BorderStyle(lipgloss.NormalBorder()).
+		BorderForeground(lipgloss.Color("56"))
+
+  sentence, _, _ := getNoteFields(m.note)
+  b := lipgloss.JoinVertical(lipgloss.Center, m.image.View(), sentence)
+
+	renderImage := noteStyle.Render(b)
+	return lipgloss.Place(core.App.Width, core.App.Height, lipgloss.Center, lipgloss.Center, renderImage)
 }

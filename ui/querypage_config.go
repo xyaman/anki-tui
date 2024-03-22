@@ -54,8 +54,8 @@ type QueryPageConfig struct {
 }
 
 func NewQueryPageConfig() QueryPageConfig {
-	var inputs = make([]textinput.Model, 9)
-	for i := 0; i < 9; i++ {
+	var inputs = make([]textinput.Model, 10)
+	for i := 0; i < 10; i++ {
 		inputs[i] = textinput.New()
 		inputs[i].Prompt = labels[i] + ": "
 	}
@@ -73,6 +73,10 @@ func NewQueryPageConfig() QueryPageConfig {
 	inputs[MinningImageFieldName].SetValue(core.App.Config.MinningImageFieldName)
 	inputs[MinningAudioFieldName].SetValue(core.App.Config.MinningAudioFieldName)
 
+	if core.App.Config.PlayAudioAutomatically {
+		inputs[PlayAudioAutomatically].SetValue("x")
+	}
+
 	return QueryPageConfig{
 		inputs: inputs,
 	}
@@ -83,53 +87,67 @@ func (m QueryPageConfig) Init() tea.Cmd {
 }
 
 func (m *QueryPageConfig) Save() error {
-  core.App.Config.MinningQuery = m.inputs[MinningQuery].Value()
-  core.App.Config.SearchQuery = m.inputs[SearchQuery].Value()
-  core.App.Config.MorphFieldName = m.inputs[MorphFieldName].Value()
-  core.App.Config.SentenceFieldName = m.inputs[SentenceFieldName].Value()
-  core.App.Config.ImageFieldName = m.inputs[ImageFieldName].Value()
-  core.App.Config.AudioFieldName = m.inputs[AudioFieldName].Value()
-  core.App.Config.KnownTag = m.inputs[KnownTag].Value()
-  core.App.Config.MinningImageFieldName = m.inputs[MinningImageFieldName].Value()
-  core.App.Config.MinningAudioFieldName = m.inputs[MinningAudioFieldName].Value()
-  return core.App.Config.Save()
+	core.App.Config.MinningQuery = m.inputs[MinningQuery].Value()
+	core.App.Config.SearchQuery = m.inputs[SearchQuery].Value()
+	core.App.Config.MorphFieldName = m.inputs[MorphFieldName].Value()
+	core.App.Config.SentenceFieldName = m.inputs[SentenceFieldName].Value()
+	core.App.Config.ImageFieldName = m.inputs[ImageFieldName].Value()
+	core.App.Config.AudioFieldName = m.inputs[AudioFieldName].Value()
+	core.App.Config.KnownTag = m.inputs[KnownTag].Value()
+	core.App.Config.MinningImageFieldName = m.inputs[MinningImageFieldName].Value()
+	core.App.Config.MinningAudioFieldName = m.inputs[MinningAudioFieldName].Value()
+	core.App.Config.PlayAudioAutomatically = m.inputs[PlayAudioAutomatically].Value() != ""
+
+	return core.App.Config.Save()
 }
 
 func (m QueryPageConfig) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmds = make([]tea.Cmd, len(m.inputs))
+	var k string
 
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 
+		k = msg.String()
+
 		switch msg.String() {
 		case "tab", "ctrl+n", "enter":
-      if msg.String() == "enter" && m.focused == len(m.inputs) {
-        return m, nil
+      if k == "enter" && m.focused == len(m.inputs) - 1 {
+        break
       }
 			m.focused++
-      // Because we have the button
+			// Because we have the button
 			if m.focused > len(m.inputs) {
 				m.focused = 0
 			}
 
 		case "shift+tab", "ctrl+p":
 			m.focused--
-      if m.focused < 0 {
-        m.focused = len(m.inputs)
-      }
+			if m.focused < 0 {
+				m.focused = len(m.inputs)
+			}
 		}
 	}
 	for i := 0; i < len(m.inputs); i++ {
+
 		m.inputs[i], cmds[i] = m.inputs[i].Update(msg)
 		m.inputs[i].Blur()
 		m.inputs[i].TextStyle = noStyle
 		m.inputs[i].PromptStyle = noStyle
 
-    if i == m.focused {
-      m.inputs[i].Focus()
-      m.inputs[i].TextStyle = focusedStyle
-      m.inputs[i].PromptStyle = focusedStyle
-    }
+		if i == m.focused {
+			m.inputs[i].Focus()
+			m.inputs[i].TextStyle = focusedStyle
+			m.inputs[i].PromptStyle = focusedStyle
+
+			if labels[i] == "Play Audio Automatically" && k == "enter" {
+				if m.inputs[i].Value() == "" {
+					m.inputs[i].SetValue("x")
+				} else {
+					m.inputs[i].SetValue("")
+				}
+			}
+		}
 	}
 
 	return m, tea.Batch(cmds...)
@@ -144,7 +162,7 @@ func (m QueryPageConfig) View() string {
 		}
 	}
 
-  button := &blurredButton
+	button := &blurredButton
 	if m.focused == len(m.inputs) {
 		button = &focusedButton
 	}
