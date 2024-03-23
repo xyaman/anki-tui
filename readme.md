@@ -10,5 +10,6 @@ Anki TUI for minning from premade decks
 
 
 # TODO
-- [ ] Fix error logs & error handling
+- [ ] Properly handle all errors (currently usign some panic)
 - [ ] Customize keymaps
+- [ ] Show help in all pages
