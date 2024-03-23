@@ -19,13 +19,14 @@ import (
 )
 
 type QueryPage struct {
-	table  table.Model
-	width  int
-	height int
+	table table.Model
 
+	// Fetch cursor
 	currentEnd int
 
-	notes []models.Note
+	notes           []models.Note
+	morphNotes      []models.Note
+	prevNotesCursor int
 
 	notePage   NotePage
 	configPage QueryPageConfig
@@ -61,6 +62,7 @@ func NewQueryPage() QueryPage {
 	return QueryPage{
 		table:      t,
 		notes:      []models.Note{},
+		morphNotes: []models.Note{},
 		notePage:   NewNotePage(),
 		configPage: NewQueryPageConfig(),
 		isConfig:   false,
@@ -69,7 +71,11 @@ func NewQueryPage() QueryPage {
 }
 
 func (m QueryPage) Init() tea.Cmd {
-	return tea.Batch(FetchNotes(core.App.Config.MinningQuery, 0, 100), m.configPage.Init())
+	if core.App.Config.MinningQuery == "" {
+		return m.configPage.Init()
+	}
+
+	return tea.Batch(FetchNotes(core.App.Config.MinningQuery, 0, 100, false), m.configPage.Init())
 }
 
 func (m QueryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -79,65 +85,154 @@ func (m QueryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		k = msg.String()
-		if k == "c" && !m.isConfig {
-			m.isConfig = true
-			return m, textinput.Blink
+		if (k == "m" || k == "esc") && !m.isConfig {
+
+			isMorphMode := len(m.morphNotes) > 0
+
+			if m.isNote && k == "esc" {
+				m.isNote = false
+				return m, nil
+			}
+
+			if !isMorphMode && k == "esc" {
+				return m, nil
+			}
+
+			_, morphs, _ := getNoteFields(&m.notes[m.table.Cursor()])
+			if isMorphMode && k != "esc" {
+				_, morphs, _ = getNoteFields(&m.morphNotes[m.table.Cursor()])
+			}
+
+			// Dont enter morph mode if there are no morphs in the selected note
+			if morphs == "" && !isMorphMode {
+				return m, core.Log(core.InfoLog{Text: "The selected note has no morphs", Type: "Info", Seconds: 2})
+			}
+
+			// Exit morph mode
+			if isMorphMode && k == "esc" {
+				m.morphNotes = []models.Note{}
+
+				// Update table
+				rows := make([]table.Row, len(m.notes))
+				for i, note := range m.notes {
+					sentence, morphs, _ := getNoteFields(&note)
+					rows[i] = table.Row{
+						fmt.Sprintf("#%d", i+1),
+						sentence,
+						morphs,
+						strings.Join(note.Tags, ", "),
+					}
+				}
+				m.table.SetRows(rows)
+				m.table.SetCursor(m.prevNotesCursor)
+
+				// update	image
+				return m, nil
+			}
+
+			query := core.App.Config.SearchQuery + " " + strings.ReplaceAll(morphs, " ", " or ")
+			return m, tea.Batch(
+				FetchNotes(query, 0, 100, true),
+				core.Log(core.InfoLog{Text: "Fetching morphs...", Type: "Info", Seconds: 1}),
+			)
+
 		} else if k == "esc" && (m.isConfig || m.isNote) {
 			m.isConfig = false
 			m.isNote = false
 			return m, nil
 		}
 
-		switch k {
-		case "p":
-			note := m.notes[m.table.Cursor()]
-			m.playAudio(&note)
-		case "o":
-			if m.isConfig {
-				break
-			}
-			note := m.notes[m.table.Cursor()]
-			m.notePage.note = &note
-			m.isNote = true
-
-			_, _, image := getNoteFields(&note)
-			m.notePage.imagepath = image
-			m.notePage.SetNote(&note)
-
-			// TODO: Change this to global
-			m.notePage.image.SetSize(50, 50)
-			m.notePage.image.SetImage(image)
-
-			// play audio
-			if core.App.Config.PlayAudioAutomatically {
+		if !m.isConfig {
+			switch k {
+			case "c":
+				m.isConfig = true
+				return m, textinput.Blink
+			case "p":
+				note := m.notes[m.table.Cursor()]
+				if len(m.morphNotes) > 0 {
+					note = m.morphNotes[m.table.Cursor()]
+				}
 				m.playAudio(&note)
-			}
+			case "o":
+				if m.isConfig {
+					break
+				}
+				isMorphMode := len(m.morphNotes) > 0
+				note := m.notes[m.table.Cursor()]
+				if isMorphMode {
+					note = m.morphNotes[m.table.Cursor()]
+				}
+				m.notePage.note = &note
+				m.isNote = true
 
-			return m, nil
+				_, _, image := getNoteFields(&note)
+				m.notePage.imagepath = image
+				m.notePage.SetNote(&note)
+
+				// TODO: Change this to global
+				m.notePage.image.SetSize(50, 50)
+				m.notePage.image.SetImage(image)
+
+				// play audio
+				if core.App.Config.PlayAudioAutomatically {
+					m.playAudio(&note)
+				}
+
+				return m, nil
+
+			case "ctrl+k":
+				err := m.setCardAsKnown()
+				if err != nil {
+					return m, tea.Batch(core.Log(core.InfoLog{Type: "error", Text: "Error when setting card as known", Seconds: 2}))
+				} else {
+					return m, tea.Batch(core.Log(core.InfoLog{Type: "info", Text: "Card set as known", Seconds: 2}))
+				}
+			}
 		}
 
 	case tea.WindowSizeMsg:
-		m.width = msg.Width
-		m.height = msg.Height
-
-		m.table.SetHeight(core.App.AvailableHeight - 10)
+		// We don't want to use the whole height
+		// We have header
+		m.table.SetHeight(core.App.AvailableHeight - 5)
 
 		return m, nil
 
 	case FetchNotesMsg:
+		// Length is 0 when:
+		// 1. First time fetching notes
+		// 2. Config is updated
 		isReload := len(m.notes) == 0
-		m.notes = append(m.notes, msg.notes...)
-		if len(m.notes) == 0 {
-			// return m, core.Log(core.InfoLog{Type: "info", Text: "No notes found.", Seconds: 2})
-			return m, tea.Batch(
-				core.Log(core.InfoLog{Type: "info", Text: "No notes found 1!!.", Seconds: 5}),
-				core.Log(core.InfoLog{Type: "error", Text: "No notes found.", Seconds: 2}),
-			)
+
+		var notes []models.Note
+
+		if msg.morphs {
+
+			// This will run when we enter to morph mode
+			if msg.morphs && len(m.morphNotes) == 0 {
+				m.prevNotesCursor = m.table.Cursor()
+			}
+
+			m.morphNotes = msg.notes
+			notes = m.morphNotes
+			m.table.SetCursor(0)
+		} else {
+			m.notes = append(m.notes, msg.notes...)
+			notes = m.notes
+		}
+
+		if len(notes) == 0 {
+
+			if msg.morphs {
+				m.table.SetCursor(m.prevNotesCursor)
+			}
+
+			// Teest
+			return m, core.Log(core.InfoLog{Type: "info", Text: "No notes were found with that query", Seconds: 2})
 		}
 
 		// Update table
-		rows := make([]table.Row, len(m.notes))
-		for i, note := range m.notes {
+		rows := make([]table.Row, len(notes))
+		for i, note := range notes {
 			sentence, morphs, _ := getNoteFields(&note)
 			rows[i] = table.Row{
 				fmt.Sprintf("#%d", i+1),
@@ -151,12 +246,31 @@ func (m QueryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if isReload {
 			m.table.SetCursor(0)
 		}
+
+		// Update NotePage
+		if m.isNote {
+			note := m.notes[m.table.Cursor()]
+			if msg.morphs {
+				note = m.morphNotes[m.table.Cursor()]
+			}
+			_, _, image := getNoteFields(&note)
+			m.notePage.imagepath = image
+			m.notePage.SetNote(&note)
+			m.notePage.image.SetImage(image)
+
+			if core.App.Config.PlayAudioAutomatically {
+				m.playAudio(&note)
+			}
+		}
+
+		return m, nil
 	}
 
-	// Table
+	// If the table is at the end, fetch more notes
+	// This also works when NotePage is visible
 	if m.table.Cursor() == m.currentEnd-1 {
 		m.currentEnd += 100
-		return m, FetchNotes(core.App.Config.MinningQuery, m.currentEnd, m.currentEnd+100)
+		return m, FetchNotes(core.App.Config.MinningQuery, m.currentEnd, m.currentEnd+100, false)
 	}
 
 	if m.isConfig {
@@ -170,7 +284,12 @@ func (m QueryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.notes = []models.Note{}
 			m.currentEnd = 100
 			m.table.SetRows([]table.Row{})
-			return m, FetchNotes(core.App.Config.MinningQuery, 0, 100)
+
+			if core.App.Config.MinningQuery == "" {
+				return m, core.Log(core.InfoLog{Type: "info", Text: "Minning query is empty.", Seconds: 2})
+			}
+
+			return m, FetchNotes(core.App.Config.MinningQuery, 0, 100, false)
 		}
 
 		newConfigPage, cmd := m.configPage.Update(msg)
@@ -191,6 +310,9 @@ func (m QueryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 			// update note
 			note := m.notes[m.table.Cursor()]
+			if len(m.morphNotes) > 0 {
+				note = m.morphNotes[m.table.Cursor()]
+			}
 			_, _, image := getNoteFields(&note)
 			m.notePage.SetNote(&note)
 			m.notePage.image.SetImage(image)
@@ -215,7 +337,7 @@ func (m QueryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m QueryPage) View() string {
 	if m.isConfig {
 		renderConfig := baseStyle.Render(m.configPage.View())
-		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, renderConfig)
+		return lipgloss.Place(core.App.AvailableWidth, core.App.AvailableHeight, lipgloss.Center, lipgloss.Center, renderConfig)
 	}
 
 	if m.isNote {
@@ -227,9 +349,7 @@ func (m QueryPage) View() string {
 	var b strings.Builder
 	b.WriteString(topbarinfo)
 	b.WriteString(m.table.View())
-	//renderTable := baseStyle.Render(b.String())
-	renderTable := b.String()
-	return lipgloss.PlaceHorizontal(m.width, lipgloss.Center, renderTable)
+	return lipgloss.PlaceHorizontal(core.App.AvailableWidth, lipgloss.Center, b.String())
 }
 
 func (qp *QueryPage) playAudio(note *models.Note) {
@@ -270,6 +390,12 @@ func (qp *QueryPage) playAudio(note *models.Note) {
 			break
 		}
 	}
+}
+
+func (qp *QueryPage) setCardAsKnown() error {
+	note := qp.notes[qp.table.Cursor()]
+	note.Tags = append(note.Tags, core.App.Config.KnownTag)
+	return core.App.AnkiConnect.AddTags(note.NoteID, core.App.Config.KnownTag)
 }
 
 func getNoteFields(note *models.Note) (string, string, string) {

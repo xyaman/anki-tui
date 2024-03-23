@@ -25,18 +25,21 @@ func GoToPanel(panel SessionState) tea.Cmd {
 }
 
 type FetchNotesMsg struct {
-	notes []models.Note
-	start int
-	end   int
+	notes  []models.Note
+	start  int
+	end    int
+	morphs bool
 }
 
+type ErrorMsg string
+
 // Return also end
-func FetchNotes(query string, start, end int) tea.Cmd {
+func FetchNotes(query string, start, end int, morphs bool) tea.Cmd {
 	return func() tea.Msg {
 		result, err := core.App.AnkiConnect.FetchNotesFromQuery(query, start, end)
 		if err != nil {
-			panic(err)
+			return ErrorMsg("Error fetching notes... Try again")
 		}
-		return FetchNotesMsg{notes: result.Result, start: start, end: len(result.Result)}
+		return FetchNotesMsg{notes: result.Result, start: start, end: len(result.Result), morphs: morphs}
 	}
 }

@@ -86,13 +86,11 @@ func (m NotePage) Update(msg tea.Msg) (NotePage, tea.Cmd) {
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "i":
-			if m.pitchMode {
-				m.pitchCursor = 0
-				m.pitchDrops = []int{}
-			}
 			m.pitchMode = !m.pitchMode
-			sentence, _, _ := getNoteFields(m.note)
-			m.pitchSentence = core.ParseJpSentence(sentence)
+			if m.pitchSentence == "" {
+				sentence, _, _ := getNoteFields(m.note)
+				m.pitchSentence = core.ParseJpSentence(sentence)
+			}
 		case "l":
 			if m.pitchMode {
 				m.pitchCursor += 3
@@ -129,11 +127,6 @@ func (m NotePage) Update(msg tea.Msg) (NotePage, tea.Cmd) {
 
 func (m NotePage) View() string {
 
-	// Render a box using lipgloss
-	noteStyle := lipgloss.NewStyle().
-		BorderStyle(lipgloss.NormalBorder()).
-		BorderForeground(lipgloss.Color("56"))
-
 	sentence, morphs, _ := getNoteFields(m.note)
 	if morphs == "" {
 		morphs = "-"
@@ -161,10 +154,21 @@ func (m NotePage) View() string {
 		}
 	}
 
+	// width := len(sentence)
+	// if m.pitchSentence != "" {
+	// 	width = len(m.pitchSentence)
+	// }
+	width := 99 // It has to be multiple of 3 (ideally, because of japanese characters)
+
+	// if sentence is longer than the width, edit sentence and add ... at the end
+	if len(sentence) > width {
+		sentence = sentence[:width-3] + "[...]"
+	}
+
 	// Center image, but align left image and text
 	b := lipgloss.JoinVertical(
 		lipgloss.Top,
-		lipgloss.PlaceHorizontal(len(sentence), lipgloss.Center, m.image.View()),
+		lipgloss.PlaceHorizontal(width, lipgloss.Center, m.image.View()),
 		lipgloss.JoinVertical(lipgloss.Top, "morphs: "+morphs, "sentence: "+sentence, newSentence),
 	)
 
@@ -173,8 +177,8 @@ func (m NotePage) View() string {
 		info = "Note\n"
 	}
 
-	renderImage := noteStyle.Render(b)
-	main := lipgloss.Place(core.App.Width, core.App.Height, lipgloss.Center, lipgloss.Center, info+renderImage)
+	renderImage := b
+	main := lipgloss.Place(core.App.AvailableWidth, core.App.AvailableHeight, lipgloss.Center, lipgloss.Center, info+renderImage)
 
 	return docStyle.Render(lipgloss.JoinVertical(lipgloss.Top, main, m.help.View(keys)))
 }
@@ -184,4 +188,5 @@ func (m *NotePage) SetNote(note *models.Note) {
 	m.pitchMode = false
 	m.pitchCursor = 0
 	m.pitchDrops = []int{}
+	m.pitchSentence = ""
 }

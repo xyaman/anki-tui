@@ -16,10 +16,10 @@ type Model struct {
 	FileName    string
 	imageString string
 
-  width int
-  height int
-  prevWidth int
-  prevHeight int
+	width      int
+	height     int
+	prevWidth  int
+	prevHeight int
 }
 
 // New creates a new image model
@@ -57,42 +57,50 @@ func ToString(width int, img image.Image) string {
 
 // convertImageToStringCmd redraws the image based on the width provided.
 func (m *Model) SetImage(filename string) {
-		imageContent, err := os.Open(filepath.Clean(filename))
-		if err != nil {
-			panic(err)
-		}
+	if filename == "" {
+		m.FileName = ""
+		// m.imageString = "no image"
+		m.imageString = lipgloss.Place(40, 20, lipgloss.Center, lipgloss.Center, "no image")
+		return
+	}
 
-		img, _, err := image.Decode(imageContent)
-		if err != nil {
-			panic(err)
-		}
+	imageContent, err := os.Open(filepath.Clean(filename))
+	if err != nil {
+		panic(err)
+	}
 
-		imageString := ToString(m.width, img)
-    m.imageString = imageString
-    m.FileName = filename
+	img, _, err := image.Decode(imageContent)
+	if err != nil {
+		panic(err)
+	}
+
+	imageString := ToString(m.width, img)
+	m.imageString = imageString
+	m.FileName = filename
 }
 
 func (m *Model) SetSize(width, height int) {
-  m.width = width
-  m.height = height
-  m.prevWidth = m.width
-  m.prevHeight = m.height
+	m.width = width
+	m.height = height
+	m.prevWidth = m.width
+	m.prevHeight = m.height
 }
 
 func (m Model) Init() tea.Cmd {
-  return nil
+	return nil
 }
 
 func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
-  
-  if (m.width != m.prevWidth) || (m.height != m.prevHeight) {
-    m.SetImage(m.FileName)
-  }
 
-  return m, nil
+	if (m.width != m.prevWidth) || (m.height != m.prevHeight) {
+		m.SetImage(m.FileName)
+		m.prevWidth = m.width
+		m.prevHeight = m.height
+	}
+
+	return m, nil
 }
 
 func (m Model) View() string {
-  return m.imageString
+	return m.imageString
 }
-

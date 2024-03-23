@@ -50,18 +50,18 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	case ui.SessionState:
 		m.state = msg
-    return m, nil
+		return m, nil
 	case ui.FetchNotesMsg:
 		var cmd tea.Cmd
 		m.QueryPage, cmd = m.QueryPage.Update(msg)
 		return m, cmd
 
 	case tea.WindowSizeMsg:
-    core.App.Height = msg.Height
-    core.App.Width = msg.Width
+		core.App.Height = msg.Height
+		core.App.Width = msg.Width
 
-    core.App.AvailableHeight = msg.Height - 3
-    core.App.AvailableWidth = msg.Width - 3
+		core.App.AvailableHeight = msg.Height - 5
+		core.App.AvailableWidth = msg.Width - 2
 
 		var cmds = make([]tea.Cmd, 2)
 		m.MainPage, cmds[0] = m.MainPage.Update(msg)
@@ -69,30 +69,32 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(cmds...)
 
 	case tickMsg:
-    newlogs := make([]core.InfoLog, 0)
+		newlogs := make([]core.InfoLog, 0)
 		for i := range m.logs {
-      m.logs[i].Seconds -= 1
-      if m.logs[i].Seconds > 0 {
-        newlogs = append(newlogs, m.logs[i])
-      }
+			m.logs[i].Seconds -= 1
+			if m.logs[i].Seconds > 0 {
+				newlogs = append(newlogs, m.logs[i])
+			}
 		}
-    m.logs = newlogs
-    core.App.AvailableHeight = core.App.Height - 3
+		m.logs = newlogs
 
 		return m, tick
 
 	case core.InfoLog:
 		m.logs = append(m.logs, msg)
-    core.App.AvailableHeight = core.App.Height - 3
-    return m, nil
+		return m, nil
+
+	case ui.ErrorMsg:
+		m.logs = append(m.logs, core.InfoLog{Text: string(msg), Type: "error", Seconds: 3})
+		return m, nil
 	}
 
-  var cmd tea.Cmd
+	var cmd tea.Cmd
 
 	if m.state == ui.MainPanel {
 		m.MainPage, cmd = m.MainPage.Update(msg)
 	} else if m.state == ui.QueryPanel {
-    m.QueryPage, cmd = m.QueryPage.Update(msg)
+		m.QueryPage, cmd = m.QueryPage.Update(msg)
 	}
 
 	return m, cmd
@@ -107,23 +109,23 @@ func (m model) View() string {
 		b.WriteString(m.QueryPage.View())
 	}
 
-  var logs []string
+	var logs []string
 	// Add all logs
-  for _, log := range m.logs {
+	for _, log := range m.logs {
 		if log.Type == "error" {
-      txt := ui.ErrorNotificationStyle.Render("Error: " + log.Text)
-      logs = append(logs, txt)
+			txt := ui.ErrorNotificationStyle.Render("Error: " + log.Text)
+			logs = append(logs, txt)
 		} else {
-      txt := ui.InfoNotificationStyle.Render("Info: " + log.Text)
-      logs = append(logs, txt)
+			txt := ui.InfoNotificationStyle.Render("Info: " + log.Text)
+			logs = append(logs, txt)
 		}
 	}
 
-  return lipgloss.JoinVertical(
-    lipgloss.Top, 
-    lipgloss.NewStyle().Height(core.App.Height-3).Render(b.String()),
-    lipgloss.JoinVertical(lipgloss.Top, logs...),
-  )
+	return lipgloss.JoinVertical(
+		lipgloss.Top,
+		lipgloss.NewStyle().Height(core.App.Height-3).Render(b.String()),
+		lipgloss.JoinVertical(lipgloss.Top, logs...),
+	)
 }
 
 func main() {

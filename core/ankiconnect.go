@@ -47,6 +47,7 @@ func (c *AnkiConnect) request(action string, params interface{}) ([]byte, error)
 }
 
 func (c *AnkiConnect) FindNotesIDByQuery(query string) (*models.FindNotesResult, error) {
+
 	result, err := c.request("findNotes", map[string]interface{}{
 		"query": query,
 	})
@@ -81,20 +82,20 @@ func (c *AnkiConnect) FetchNotesFromID(ids []int) (*models.NotesInfoResult, erro
 }
 
 func (c *AnkiConnect) FetchNotesFromQuery(query string, start int, end int) (*models.NotesInfoResult, error) {
-  notes, err := c.FindNotesIDByQuery(query)
-  if err != nil {
-    return nil, err
-  }
+	notes, err := c.FindNotesIDByQuery(query)
+	if err != nil {
+		return nil, err
+	}
 
-  if len(notes.Result) == 0 {
-    return &models.NotesInfoResult{}, nil
-  } 
+	if len(notes.Result) == 0 {
+		return &models.NotesInfoResult{}, nil
+	}
 
-  if end > len(notes.Result) {
-    end = len(notes.Result)
-  }
+	if end > len(notes.Result) {
+		end = len(notes.Result)
+	}
 
-  return c.FetchNotesFromID(notes.Result[start:end])
+	return c.FetchNotesFromID(notes.Result[start:end])
 }
 
 func (c *AnkiConnect) DeleteNotes(cards []int) error {
