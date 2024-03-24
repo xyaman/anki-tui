@@ -1,6 +1,8 @@
 package ui
 
 import (
+	"strings"
+
 	"github.com/charmbracelet/bubbles/help"
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
@@ -93,10 +95,13 @@ func (m NotePage) Update(msg tea.Msg) (NotePage, tea.Cmd) {
 			}
 		case "l":
 			if m.pitchMode {
-				m.pitchCursor += 3
-				if m.pitchCursor < len(m.pitchSentence)-1 && m.pitchSentence[m.pitchCursor:m.pitchCursor+3] == "　" {
+				if m.pitchCursor < len(m.pitchSentence)-3 {
 					m.pitchCursor += 3
+					if m.pitchCursor < len(m.pitchSentence)-1 && m.pitchSentence[m.pitchCursor:m.pitchCursor+3] == "　" {
+						m.pitchCursor += 3
+					}
 				}
+
 			}
 		case "h":
 			if m.pitchMode {
@@ -152,6 +157,8 @@ func (m NotePage) View() string {
 				}
 			}
 		}
+
+		newSentence += "\n"
 	}
 
 	// width := len(sentence)
@@ -169,7 +176,7 @@ func (m NotePage) View() string {
 	b := lipgloss.JoinVertical(
 		lipgloss.Top,
 		lipgloss.PlaceHorizontal(width, lipgloss.Center, m.image.View()),
-		lipgloss.JoinVertical(lipgloss.Top, "morphs: "+morphs, "sentence: "+sentence, newSentence),
+		lipgloss.JoinVertical(lipgloss.Top, "morphs: "+morphs, "sentence: "+sentence, newSentence, "tags: "+strings.Join(m.note.Tags, ", ")),
 	)
 
 	var info string

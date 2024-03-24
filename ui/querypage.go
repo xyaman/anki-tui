@@ -86,37 +86,30 @@ func (m QueryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyMsg:
 		k = msg.String()
 
-		// Exit NotePage or MorphMode
+		// Exit NotePage, Config and MorphMode block
 		// The order is:
-		// 1. Exit notePage
-		// 2. if not, exit morphMode
-		if k == "esc" && len(m.morphNotes) > 0 && !m.isConfig {
-			if m.isNote {
+		// 1. Exit notePage and Config
+		// 2. if not, exit morphMode and reset
+		if k == "esc" {
+			if m.isNote || m.isConfig {
 				m.isNote = false
+				m.isConfig = false
 				return m, nil
 			}
-			m.morphNotes = []models.Note{}
 
-			// Update table
-			rows := make([]table.Row, len(m.notes))
-			for i, note := range m.notes {
-				sentence, morphs, _ := getNoteFields(&note)
-				rows[i] = table.Row{
-					fmt.Sprintf("#%d", i+1),
-					sentence,
-					morphs,
-					strings.Join(note.Tags, ", "),
-				}
+			isMorphMode := len(m.morphNotes) > 0
+			if isMorphMode {
+				m.morphNotes = []models.Note{}
+
+				// Update table
+				m.setNotesToTable(m.notes)
+				m.table.SetCursor(m.prevNotesCursor)
+
 			}
-			m.table.SetRows(rows)
-			m.table.SetCursor(m.prevNotesCursor)
-
-			// update	image
 			return m, nil
 		}
 
-		// Enter with m
-		// Exit with esc
+		// Enter Morphmode
 		if (k == "m") && !m.isConfig {
 
 			isMorphMode := len(m.morphNotes) > 0
@@ -138,13 +131,7 @@ func (m QueryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				FetchNotes(query, 0, 100, true),
 				core.Log(core.InfoLog{Text: "Fetching morphs...", Type: "Info", Seconds: 1}),
 			)
-
-		} else if k == "esc" && (m.isConfig || m.isNote) {
-			m.isConfig = false
-			m.isNote = false
-			return m, nil
 		}
-
 		if !m.isConfig {
 			switch k {
 			case "c":
@@ -160,35 +147,16 @@ func (m QueryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if m.isConfig {
 					break
 				}
-				isMorphMode := len(m.morphNotes) > 0
-				note := m.notes[m.table.Cursor()]
-				if isMorphMode {
-					note = m.morphNotes[m.table.Cursor()]
-				}
-				m.notePage.note = &note
-				m.isNote = true
-
-				_, _, image := getNoteFields(&note)
-				m.notePage.imagepath = image
-				m.notePage.SetNote(&note)
-
-				// TODO: Change this to global
-				m.notePage.image.SetSize(50, 50)
-				m.notePage.image.SetImage(image)
-
-				// play audio
-				if core.App.Config.PlayAudioAutomatically {
-					m.playAudio(&note)
-				}
+				m.showNotePage()
 
 				return m, nil
 
 			case "ctrl+k":
 				err := m.setCardAsKnown()
 				if err != nil {
-					return m, tea.Batch(core.Log(core.InfoLog{Type: "error", Text: "Error when setting card as known", Seconds: 2}))
+					return m, tea.Batch(core.Log(core.InfoLog{Type: "error", Text: "Error when setting card as known", Seconds: 3}))
 				} else {
-					return m, tea.Batch(core.Log(core.InfoLog{Type: "info", Text: "Card set as known", Seconds: 2}))
+					return m, tea.Batch(core.Log(core.InfoLog{Type: "info", Text: fmt.Sprintf("Card set as known (%s)", core.App.Config.KnownTag), Seconds: 2}))
 				}
 			}
 		}
@@ -230,21 +198,11 @@ func (m QueryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 			// Teest
-			return m, core.Log(core.InfoLog{Type: "info", Text: "No notes were found with that query", Seconds: 2})
+			return m, core.Log(core.InfoLog{Type: "info", Text: "No notes were found with that query", Seconds: 4})
 		}
 
 		// Update table
-		rows := make([]table.Row, len(notes))
-		for i, note := range notes {
-			sentence, morphs, _ := getNoteFields(&note)
-			rows[i] = table.Row{
-				fmt.Sprintf("#%d", i+1),
-				sentence,
-				morphs,
-				strings.Join(note.Tags, ", "),
-			}
-		}
-		m.table.SetRows(rows)
+		m.setNotesToTable(notes)
 
 		if isReload {
 			m.table.SetCursor(0)
@@ -252,18 +210,7 @@ func (m QueryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// Update NotePage
 		if m.isNote {
-			note := m.notes[m.table.Cursor()]
-			if msg.morphs {
-				note = m.morphNotes[m.table.Cursor()]
-			}
-			_, _, image := getNoteFields(&note)
-			m.notePage.imagepath = image
-			m.notePage.SetNote(&note)
-			m.notePage.image.SetImage(image)
-
-			if core.App.Config.PlayAudioAutomatically {
-				m.playAudio(&note)
-			}
+			m.showNotePage()
 		}
 
 		return m, nil
@@ -289,10 +236,16 @@ func (m QueryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.table.SetRows([]table.Row{})
 
 			if core.App.Config.MinningQuery == "" {
-				return m, core.Log(core.InfoLog{Type: "info", Text: "Minning query is empty.", Seconds: 2})
+				return m, core.Log(core.InfoLog{Type: "info", Text: "Minning query is empty.", Seconds: 3})
 			}
 
-			return m, FetchNotes(core.App.Config.MinningQuery, 0, 100, false)
+			cmds := []tea.Cmd{FetchNotes(core.App.Config.MinningQuery, 0, 100, false)}
+
+			if core.App.Config.SearchQuery == "" {
+				cmds = append(cmds, core.Log(core.InfoLog{Type: "info", Text: "Search query is empty.", Seconds: 3}))
+			}
+
+			return m, tea.Batch(cmds...)
 		}
 
 		newConfigPage, cmd := m.configPage.Update(msg)
@@ -311,19 +264,7 @@ func (m QueryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.table, cmd = m.table.Update(msg)
 			cmds = append(cmds, cmd)
 
-			// update note
-			note := m.notes[m.table.Cursor()]
-			if len(m.morphNotes) > 0 {
-				note = m.morphNotes[m.table.Cursor()]
-			}
-			_, _, image := getNoteFields(&note)
-			m.notePage.SetNote(&note)
-			m.notePage.image.SetImage(image)
-
-			// play audio if it is enabled
-			if core.App.Config.PlayAudioAutomatically {
-				m.playAudio(&note)
-			}
+			m.showNotePage()
 		}
 
 		var cmd tea.Cmd
@@ -392,6 +333,42 @@ func (qp *QueryPage) playAudio(note *models.Note) {
 
 			break
 		}
+	}
+}
+
+func (qp *QueryPage) setNotesToTable(notes []models.Note) {
+	rows := make([]table.Row, len(notes))
+	for i, note := range notes {
+		sentence, morphs, _ := getNoteFields(&note)
+		rows[i] = table.Row{
+			fmt.Sprintf("#%d", i+1),
+			sentence,
+			morphs,
+			strings.Join(note.Tags, ", "),
+		}
+	}
+	qp.table.SetRows(rows)
+}
+
+func (m *QueryPage) showNotePage() {
+	m.isNote = true
+
+	note := m.notes[m.table.Cursor()]
+	if len(m.morphNotes) > 0 {
+		note = m.morphNotes[m.table.Cursor()]
+	}
+
+	prevNote := 0
+	if m.notePage.note != nil {
+		prevNote = m.notePage.note.NoteID
+	}
+	m.notePage.SetNote(&note)
+	m.notePage.image.SetSize(50, 50)
+	_, _, image := getNoteFields(&note)
+	m.notePage.image.SetImage(image)
+
+	if core.App.Config.PlayAudioAutomatically && note.NoteID != prevNote {
+		m.playAudio(&note)
 	}
 }
 
