@@ -85,49 +85,52 @@ func (m QueryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		k = msg.String()
-		if (k == "m" || k == "esc") && !m.isConfig {
 
-			isMorphMode := len(m.morphNotes) > 0
-
-			if m.isNote && k == "esc" {
+		// Exit NotePage or MorphMode
+		// The order is:
+		// 1. Exit notePage
+		// 2. if not, exit morphMode
+		if k == "esc" && len(m.morphNotes) > 0 && !m.isConfig {
+			if m.isNote {
 				m.isNote = false
 				return m, nil
 			}
+			m.morphNotes = []models.Note{}
 
-			if !isMorphMode && k == "esc" {
-				return m, nil
+			// Update table
+			rows := make([]table.Row, len(m.notes))
+			for i, note := range m.notes {
+				sentence, morphs, _ := getNoteFields(&note)
+				rows[i] = table.Row{
+					fmt.Sprintf("#%d", i+1),
+					sentence,
+					morphs,
+					strings.Join(note.Tags, ", "),
+				}
 			}
+			m.table.SetRows(rows)
+			m.table.SetCursor(m.prevNotesCursor)
 
+			// update	image
+			return m, nil
+		}
+
+		// Enter with m
+		// Exit with esc
+		if (k == "m") && !m.isConfig {
+
+			isMorphMode := len(m.morphNotes) > 0
+
+			// When entering morph mode, we need to get the morphs using "normal" notes
+			// When we are already in morph mode, we need to get the morphs using the morph notes
 			_, morphs, _ := getNoteFields(&m.notes[m.table.Cursor()])
-			if isMorphMode && k != "esc" {
+			if isMorphMode {
 				_, morphs, _ = getNoteFields(&m.morphNotes[m.table.Cursor()])
 			}
 
 			// Dont enter morph mode if there are no morphs in the selected note
 			if morphs == "" && !isMorphMode {
 				return m, core.Log(core.InfoLog{Text: "The selected note has no morphs", Type: "Info", Seconds: 2})
-			}
-
-			// Exit morph mode
-			if isMorphMode && k == "esc" {
-				m.morphNotes = []models.Note{}
-
-				// Update table
-				rows := make([]table.Row, len(m.notes))
-				for i, note := range m.notes {
-					sentence, morphs, _ := getNoteFields(&note)
-					rows[i] = table.Row{
-						fmt.Sprintf("#%d", i+1),
-						sentence,
-						morphs,
-						strings.Join(note.Tags, ", "),
-					}
-				}
-				m.table.SetRows(rows)
-				m.table.SetCursor(m.prevNotesCursor)
-
-				// update	image
-				return m, nil
 			}
 
 			query := core.App.Config.SearchQuery + " " + strings.ReplaceAll(morphs, " ", " or ")
