@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"fmt"
 	"strings"
 	"time"
 
@@ -8,6 +9,10 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/xyaman/anki-tui/core"
+)
+
+const (
+	LogsHeight = 3
 )
 
 type tickMsg time.Time
@@ -45,19 +50,16 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if k == "ctrl+c" {
 			return m, tea.Quit
 		}
+
 	case SessionState:
 		m.state = msg
 		return m, nil
-	case FetchNotesMsg:
-		var cmd tea.Cmd
-		m.QueryPage, cmd = m.QueryPage.Update(msg)
-		return m, cmd
 
 	case tea.WindowSizeMsg:
 		core.App.Height = msg.Height
 		core.App.Width = msg.Width
 
-		core.App.AvailableHeight = msg.Height - 5
+		core.App.AvailableHeight = msg.Height - LogsHeight
 		core.App.AvailableWidth = msg.Width - 2
 
 		var cmds = make([]tea.Cmd, 2)
@@ -81,9 +83,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.logs = append(m.logs, msg)
 		return m, nil
 
-	case ErrorMsg:
-		m.logs = append(m.logs, core.InfoLog{Text: string(msg), Type: "error", Seconds: 3})
-		return m, nil
+	case FetchNotesMsg:
+		var cmd tea.Cmd
+		m.QueryPage, cmd = m.QueryPage.Update(msg)
+		return m, cmd
 	}
 
 	var cmd tea.Cmd
@@ -107,7 +110,6 @@ func (m model) View() string {
 	}
 
 	var logs []string
-	// Add all logs
 	for _, log := range m.logs {
 		if log.Type == "error" {
 			txt := ErrorNotificationStyle.Render("Error: " + log.Text)
@@ -118,9 +120,16 @@ func (m model) View() string {
 		}
 	}
 
+	// Show max 2 logs, if there are more than 2 logs, show the latest 2 logs and
+	// show a message that there are more logs
+	if len(logs) > 2 {
+		logs = logs[len(logs)-2:]
+		logs = append(logs, InfoNotificationStyle.Render(fmt.Sprintf("There are %d more logs", len(m.logs)-2)))
+	}
+
 	return lipgloss.JoinVertical(
 		lipgloss.Top,
-		lipgloss.NewStyle().Height(core.App.Height-3).Render(b.String()),
+		lipgloss.NewStyle().Height(core.App.Height-LogsHeight).Render(b.String()),
 		lipgloss.JoinVertical(lipgloss.Top, logs...),
 	)
 }

@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/help"
@@ -8,19 +9,20 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/xyaman/anki-tui/core"
-	"github.com/xyaman/anki-tui/image"
 	"github.com/xyaman/anki-tui/models"
+	"github.com/xyaman/anki-tui/ui/components/image"
 )
 
 type keyMap struct {
 	NextNote  key.Binding
 	PrevNote  key.Binding
 	PlayAudio key.Binding
+	SeeInAnki key.Binding
 	Return    key.Binding
 }
 
 func (k keyMap) ShortHelp() []key.Binding {
-	return []key.Binding{k.NextNote, k.PrevNote, k.PlayAudio, k.Return}
+	return []key.Binding{k.NextNote, k.PrevNote, k.PlayAudio, k.SeeInAnki, k.Return}
 }
 
 func (k keyMap) FullHelp() [][]key.Binding {
@@ -41,6 +43,10 @@ var keys = keyMap{
 	PlayAudio: key.NewBinding(
 		key.WithKeys("p"),
 		key.WithHelp("p", "Play audio"),
+	),
+	SeeInAnki: key.NewBinding(
+		key.WithKeys("g"),
+		key.WithHelp("g", "See in Anki"),
 	),
 	Return: key.NewBinding(
 		key.WithKeys("esc"),
@@ -122,8 +128,10 @@ func (m NotePage) Update(msg tea.Msg) (NotePage, tea.Cmd) {
 				if len(m.pitchDrops) > 0 {
 					m.pitchDrops = m.pitchDrops[:len(m.pitchDrops)-1]
 				}
-
 			}
+		case "g":
+			// See in anki gui
+			core.App.AnkiConnect.GuiBrowse(fmt.Sprintf("nid:%d", m.note.NoteID))
 		}
 	}
 
@@ -161,11 +169,8 @@ func (m NotePage) View() string {
 		newSentence += "\n"
 	}
 
-	// width := len(sentence)
-	// if m.pitchSentence != "" {
-	// 	width = len(m.pitchSentence)
-	// }
 	width := 99 // It has to be multiple of 3 (ideally, because of japanese characters)
+	height := core.App.AvailableHeight - lipgloss.Height(m.help.View(keys))
 
 	// if sentence is longer than the width, edit sentence and add ... at the end
 	if len(sentence) > width {
@@ -185,9 +190,9 @@ func (m NotePage) View() string {
 	}
 
 	renderImage := b
-	main := lipgloss.Place(core.App.AvailableWidth, core.App.AvailableHeight, lipgloss.Center, lipgloss.Center, info+renderImage)
+	main := lipgloss.Place(core.App.AvailableWidth, height, lipgloss.Center, lipgloss.Center, info+renderImage)
 
-	return docStyle.Render(lipgloss.JoinVertical(lipgloss.Top, main, m.help.View(keys)))
+	return lipgloss.JoinVertical(lipgloss.Top, main, m.help.View(keys))
 }
 
 func (m *NotePage) SetNote(note *models.Note) {

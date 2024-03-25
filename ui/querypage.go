@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -16,6 +17,7 @@ import (
 	"github.com/gopxl/beep/speaker"
 	"github.com/xyaman/anki-tui/core"
 	"github.com/xyaman/anki-tui/models"
+	"github.com/xyaman/anki-tui/ui/components/modal"
 )
 
 type QueryPage struct {
@@ -30,6 +32,7 @@ type QueryPage struct {
 
 	notePage   NotePage
 	configPage QueryPageConfig
+	modal      modal.Model
 	isConfig   bool
 	isNote     bool
 
@@ -64,6 +67,7 @@ func NewQueryPage() QueryPage {
 		notes:      []models.Note{},
 		morphNotes: []models.Note{},
 		notePage:   NewNotePage(),
+		modal:      modal.New(),
 		configPage: NewQueryPageConfig(),
 		isConfig:   false,
 		currentEnd: 100,
@@ -110,7 +114,7 @@ func (m QueryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		// Enter Morphmode
-		if (k == "m") && !m.isConfig {
+		if k == "m" && !m.isConfig {
 
 			isMorphMode := len(m.morphNotes) > 0
 
@@ -132,17 +136,21 @@ func (m QueryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				core.Log(core.InfoLog{Text: "Fetching morphs...", Type: "Info", Seconds: 1}),
 			)
 		}
+
 		if !m.isConfig {
 			switch k {
 			case "c":
 				m.isConfig = true
 				return m, textinput.Blink
+
 			case "p":
 				note := m.notes[m.table.Cursor()]
 				if len(m.morphNotes) > 0 {
 					note = m.morphNotes[m.table.Cursor()]
 				}
 				m.playAudio(&note)
+				return m, nil
+
 			case "o":
 				if m.isConfig {
 					break
@@ -154,10 +162,36 @@ func (m QueryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case "ctrl+k":
 				err := m.setCardAsKnown()
 				if err != nil {
-					return m, tea.Batch(core.Log(core.InfoLog{Type: "error", Text: "Error when setting card as known", Seconds: 3}))
+					return m, core.Log(core.InfoLog{Type: "error", Text: "Error when setting card as known", Seconds: 3})
 				} else {
-					return m, tea.Batch(core.Log(core.InfoLog{Type: "info", Text: fmt.Sprintf("Card set as known (%s)", core.App.Config.KnownTag), Seconds: 2}))
+					return m, core.Log(core.InfoLog{Type: "info", Text: fmt.Sprintf("Card set as known (%s)", core.App.Config.KnownTag), Seconds: 2})
 				}
+
+			case "ctrl+n":
+				if m.isConfig || m.modal.Visible {
+					break
+				}
+				note := m.notes[m.table.Cursor()]
+				if len(m.morphNotes) > 0 {
+					note = m.morphNotes[m.table.Cursor()]
+				}
+
+				// Show modal
+				sentence, _, _ := getNoteFields(&note)
+				m.modal.Text = fmt.Sprintf("Add image and sentence to last added card?\n\n%s", sentence)
+				m.modal.Visible = true
+				m.modal.OkText = "Yes"
+				m.modal.CancelText = "No"
+				m.modal.OkFunc = func() tea.Cmd {
+					m.modal.Visible = false
+					err := addImageAndSentenceToLastCard(&note)
+					if err != nil {
+						return core.Log(core.InfoLog{Type: "error", Text: fmt.Sprintf("%s", err), Seconds: 3})
+					} else {
+						return core.Log(core.InfoLog{Type: "info", Text: "Image and sentence added to last added card", Seconds: 2})
+					}
+				}
+				return m, nil
 			}
 		}
 
@@ -223,6 +257,13 @@ func (m QueryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, FetchNotes(core.App.Config.MinningQuery, m.currentEnd, m.currentEnd+100, false)
 	}
 
+	if m.modal.Visible {
+		newModal, cmd := m.modal.Update(msg)
+		modal, _ := newModal.(modal.Model)
+		m.modal = modal
+		return m, cmd
+	}
+
 	if m.isConfig {
 		// Exit
 		if k == "enter" && m.configPage.focused == len(m.configPage.inputs) {
@@ -279,6 +320,13 @@ func (m QueryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m QueryPage) View() string {
+
+	if m.modal.Visible {
+		modalStyle := lipgloss.NewStyle().
+			Padding(1, 0)
+
+		return lipgloss.Place(core.App.AvailableWidth, core.App.AvailableHeight, lipgloss.Center, lipgloss.Center, modalStyle.Render(m.modal.View()))
+	}
 
 	if m.isConfig {
 		renderConfig := baseStyle.Render(m.configPage.View())
@@ -375,6 +423,9 @@ func (m *QueryPage) showNotePage() {
 
 func (qp *QueryPage) setCardAsKnown() error {
 	note := qp.notes[qp.table.Cursor()]
+	if len(qp.morphNotes) > 0 {
+		note = qp.morphNotes[qp.table.Cursor()]
+	}
 	note.Tags = append(note.Tags, core.App.Config.KnownTag)
 	return core.App.AnkiConnect.AddTags(note.NoteID, core.App.Config.KnownTag)
 }
@@ -408,4 +459,59 @@ func getNoteFields(note *models.Note) (string, string, string) {
 	}
 
 	return sentence, morphs, image
+}
+
+func getAudioFields(note *models.Note) string {
+	audioFieldsName := strings.Split(core.App.Config.AudioFieldName, ",")
+	for _, fieldName := range audioFieldsName {
+		if audioField, ok := note.Fields[fieldName]; ok {
+			return audioField.(map[string]interface{})["value"].(string)
+		}
+	}
+	return ""
+}
+
+func getImageFields(note *models.Note) string {
+	imageFieldsName := strings.Split(core.App.Config.ImageFieldName, ",")
+	for _, fieldName := range imageFieldsName {
+		if imageField, ok := note.Fields[fieldName]; ok {
+			return imageField.(map[string]interface{})["value"].(string)
+		}
+	}
+	return ""
+}
+
+// Add image and sentence to last added card
+func addImageAndSentenceToLastCard(note *models.Note) error {
+	// Get last added card
+	lastAddedCard, err := core.App.AnkiConnect.GetLastAddedCard()
+	if err != nil {
+		return err
+	}
+
+	image := getImageFields(note)
+	audio := getAudioFields(note)
+
+	if audio == "" {
+		return errors.New("No audio field found, check settings")
+	} else if image == "" {
+		return errors.New("No image field found, check settings")
+	}
+
+	err = core.App.AnkiConnect.UpdateNoteFields(lastAddedCard.NoteID, models.Fields{
+		core.App.Config.MinningAudioFieldName: getAudioFields(note),
+		core.App.Config.MinningImageFieldName: image,
+	})
+
+	// Add tcore.App. (except 1T, MT, 0T)
+	for _, tag := range note.Tags {
+		if tag != "1T" && tag != "MT" && tag != "0T" {
+			err = core.App.AnkiConnect.AddTags(lastAddedCard.NoteID, tag)
+			if err != nil {
+				return err
+			}
+		}
+	}
+
+	return err
 }

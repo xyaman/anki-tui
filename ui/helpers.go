@@ -31,14 +31,12 @@ type FetchNotesMsg struct {
 	morphs bool
 }
 
-type ErrorMsg string
-
 // Return also end
 func FetchNotes(query string, start, end int, morphs bool) tea.Cmd {
 	return func() tea.Msg {
 		result, err := core.App.AnkiConnect.FetchNotesFromQuery(query, start, end)
 		if err != nil {
-			return ErrorMsg("Error fetching notes... Try again")
+			return core.Log(core.InfoLog{Text: err.Error(), Seconds: 3, Type: "error"})
 		}
 		return FetchNotesMsg{notes: result.Result, start: start, end: len(result.Result), morphs: morphs}
 	}
