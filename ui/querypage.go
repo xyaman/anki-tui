@@ -3,8 +3,6 @@ package ui
 import (
 	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/help"
@@ -14,7 +12,6 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/gopxl/beep"
 	"github.com/gopxl/beep/generators"
-	"github.com/gopxl/beep/mp3"
 	"github.com/gopxl/beep/speaker"
 	"github.com/xyaman/anki-tui/core"
 	"github.com/xyaman/anki-tui/models"
@@ -55,6 +52,7 @@ func NewQueryPage() QueryPage {
 			{Title: "Sentence", Width: 50},
 			{Title: "Morphs", Width: 20},
 			{Title: "Tags", Width: 50},
+			{Title: "Source", Width: 50},
 		}))
 
 	s := table.DefaultStyles()
@@ -86,7 +84,7 @@ func (m QueryPage) Init() tea.Cmd {
 		return m.configPage.Init()
 	}
 
-	return tea.Batch(FetchNotes(core.App.Config.MinningQuery, 0, 100, false), m.configPage.Init())
+	return tea.Batch(FetchNotes(core.App.Config.MinningQuery, 0, 100, false, false), m.configPage.Init())
 }
 
 func (m QueryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -121,7 +119,7 @@ func (m QueryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		// Enter Morphmode
-		if k == "m" && !m.isConfig {
+		if (k == "m" || k == "e") && !m.isConfig {
 
 			isMorphMode := len(m.morphNotes) > 0
 
@@ -137,11 +135,19 @@ func (m QueryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, core.Log(core.InfoLog{Text: "The selected note has no morphs", Type: "Info", Seconds: 2})
 			}
 
-			query := core.App.Config.SearchQuery + " " + strings.ReplaceAll(morphs, " ", " or ")
-			return m, tea.Batch(
-				FetchNotes(query, 0, 100, true),
-				core.Log(core.InfoLog{Text: "Fetching morphs...", Type: "Info", Seconds: 1}),
-			)
+			if k == "m" {
+				query := core.App.Config.SearchQuery + " " + strings.ReplaceAll(morphs, " ", " or ")
+				return m, tea.Batch(
+					FetchNotes(query, 0, 100, true, false),
+					core.Log(core.InfoLog{Text: "Fetching morphs...", Type: "Info", Seconds: 1}),
+				)
+
+			} else if k == "e" {
+				return m, tea.Batch(
+					FetchNotes(morphs, 0, 100, true, true),
+					core.Log(core.InfoLog{Text: "[external] Fetching morphs...", Type: "Info", Seconds: 5}),
+				)
+			}
 		}
 
 		if !m.isConfig {
@@ -293,7 +299,11 @@ func (m QueryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		case mineModal:
 			m.modal.IsVisible = false
-			err := addImageAndSentenceToLastCard(&m.notes[m.table.Cursor()])
+			note := m.notes[msg.Cursor]
+			if len(m.morphNotes) > 0 {
+				note = m.morphNotes[msg.Cursor]
+			}
+			err := addImageAndSentenceToLastCard(&note)
 			if err != nil {
 				return m, core.Log(core.InfoLog{Type: "error", Text: fmt.Sprintf("%s", err), Seconds: 3})
 			} else {
@@ -310,7 +320,7 @@ func (m QueryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// This also works when NotePage is visible
 	if m.table.Cursor() == m.currentEnd-1 {
 		m.currentEnd += 100
-		return m, FetchNotes(core.App.Config.MinningQuery, m.currentEnd, m.currentEnd+100, false)
+		return m, FetchNotes(core.App.Config.MinningQuery, m.currentEnd, m.currentEnd+100, false, false)
 	}
 
 	if m.modal.IsVisible {
@@ -336,7 +346,7 @@ func (m QueryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, core.Log(core.InfoLog{Type: "info", Text: "Minning query is empty.", Seconds: 3})
 			}
 
-			cmds := []tea.Cmd{FetchNotes(core.App.Config.MinningQuery, 0, 100, false)}
+			cmds := []tea.Cmd{FetchNotes(core.App.Config.MinningQuery, 0, 100, false, false)}
 
 			if core.App.Config.SearchQuery == "" {
 				cmds = append(cmds, core.Log(core.InfoLog{Type: "info", Text: "Search query is empty.", Seconds: 3}))
@@ -412,35 +422,22 @@ func (qp *QueryPage) playAudio(note *models.Note) {
 		speaker.Unlock()
 	}
 
-	audioFieldsName := strings.Split(core.App.Config.AudioFieldName, ",")
-	for _, fieldName := range audioFieldsName {
-		if audioField, ok := note.Fields[fieldName]; ok {
-			audioFile := audioField.(map[string]interface{})["value"].(string)
-			audioFile = audioFile[7 : len(audioFile)-1]
-			reader, err := os.Open(filepath.Join(core.App.CollectionPath, audioFile))
-			if err != nil {
-				panic(err)
-			}
-			streamer, _, err := mp3.Decode(reader)
-			if err != nil {
-				panic(err)
-			}
-
-			speaker.Lock()
-			qp.audioCtrl = &beep.Ctrl{Streamer: streamer}
-			speaker.Unlock()
-
-			// Add a small silence delay
-			silence := generators.Silence(12000)
-
-			speaker.Play(beep.Seq(silence, qp.audioCtrl, beep.Callback(func() {
-				streamer.Close()
-				reader.Close()
-			})))
-
-			break
-		}
+	reader, streamer := note.GetAudio(core.App.CollectionPath)
+	if streamer == nil {
+		return
 	}
+
+	speaker.Lock()
+	qp.audioCtrl = &beep.Ctrl{Streamer: streamer}
+	speaker.Unlock()
+
+	// Add a small silence delay
+	silence := generators.Silence(12000)
+
+	speaker.Play(beep.Seq(silence, qp.audioCtrl, beep.Callback(func() {
+		streamer.Close()
+		reader.Close()
+	})))
 }
 
 func (qp *QueryPage) setNotesToTable(notes []models.Note) {
@@ -453,6 +450,7 @@ func (qp *QueryPage) setNotesToTable(notes []models.Note) {
 			sentence,
 			morphs,
 			strings.Join(note.Tags, ", "),
+			note.GetSource(),
 		}
 	}
 	qp.table.SetRows(rows)
@@ -472,7 +470,7 @@ func (m *QueryPage) showNotePage() {
 	}
 	m.notePage.SetNote(&note)
 	m.notePage.image.SetSize(50, 50)
-	image := note.GetImagePath(core.App.CollectionPath)
+	image := note.GetImage(core.App.CollectionPath)
 	m.notePage.image.SetImage(image)
 
 	if core.App.Config.PlayAudioAutomatically && note.NoteID != prevNote {
@@ -491,6 +489,10 @@ func (qp *QueryPage) setCardAsKnown() error {
 
 // Add image and sentence to last added card
 func addImageAndSentenceToLastCard(note *models.Note) error {
+	if note.GetSource() != "Anki" {
+		return errors.New("Note is not from Anki")
+	}
+
 	// Get last added card
 	lastAddedCard, err := core.App.AnkiConnect.GetLastAddedCard()
 	if err != nil {

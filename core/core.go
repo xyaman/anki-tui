@@ -27,9 +27,10 @@ func Log(log InfoLog) tea.Cmd {
 // ---------------------
 
 type AnkiTui struct {
-	Config         *Config
-	AnkiConnect    *AnkiConnect
-	CollectionPath string
+	Config          *Config
+	AnkiConnect     *AnkiConnect
+	ExternalSources []ExternalSource
+	CollectionPath  string
 
 	Height          int
 	Width           int
@@ -55,5 +56,8 @@ func NewAnkiTui() *AnkiTui {
 		Config:         config,
 		AnkiConnect:    NewAnkiConnect("http://localhost:8765", 6),
 		CollectionPath: collectionPath,
+		ExternalSources: []ExternalSource{
+			NewBrigadaSource("f34a3113-e164-4981-bd69-c58430fd64a1"),
+		},
 	}
 }

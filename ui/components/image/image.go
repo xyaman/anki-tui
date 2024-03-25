@@ -2,8 +2,6 @@ package image
 
 import (
 	"image"
-	"os"
-	"path/filepath"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -13,7 +11,7 @@ import (
 )
 
 type Model struct {
-	FileName    string
+	image       image.Image
 	imageString string
 
 	width      int
@@ -55,28 +53,16 @@ func ToString(width int, img image.Image) string {
 	return str.String()
 }
 
-// convertImageToStringCmd redraws the image based on the width provided.
-func (m *Model) SetImage(filename string) {
-	if filename == "" {
-		m.FileName = ""
-		// m.imageString = "no image"
+func (m *Model) SetImage(img image.Image) {
+	if img == nil {
+		m.image = nil
 		m.imageString = lipgloss.Place(40, 20, lipgloss.Center, lipgloss.Center, "no image")
 		return
 	}
 
-	imageContent, err := os.Open(filepath.Clean(filename))
-	if err != nil {
-		panic(err)
-	}
-
-	img, _, err := image.Decode(imageContent)
-	if err != nil {
-		panic(err)
-	}
-
 	imageString := ToString(m.width, img)
+	m.image = img
 	m.imageString = imageString
-	m.FileName = filename
 }
 
 func (m *Model) SetSize(width, height int) {
@@ -93,7 +79,7 @@ func (m Model) Init() tea.Cmd {
 func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 
 	if (m.width != m.prevWidth) || (m.height != m.prevHeight) {
-		m.SetImage(m.FileName)
+		m.SetImage(m.image)
 		m.prevWidth = m.width
 		m.prevHeight = m.height
 	}

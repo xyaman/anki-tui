@@ -1,8 +1,16 @@
 package models
 
 import (
+	"image"
+	"io"
+	"net/http"
+	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/gopxl/beep"
+	"github.com/gopxl/beep/mp3"
+	"golang.org/x/image/webp"
 )
 
 type FindNotesResult struct {
@@ -17,15 +25,17 @@ type NotesInfoResult struct {
 
 type Note struct {
 	NoteID int      `json:"noteId"`
-	CardID int      `json:"cardId"`
 	Fields Fields   `json:"fields"`
 	Tags   []string `json:"tags"`
 
 	// custom fields
-	sentenceValue string
-	morphsValue   string
-	audioValue    string
-	imageValue    string
+	Source        string
+	SentenceValue string
+	MorphsValue   string
+	AudioValue    string
+	ImageValue    string
+
+	Image image.Image
 }
 
 // Fields represents the main fields for a Anki Note
@@ -35,7 +45,7 @@ func (n *Note) GetFieldsValues(sentence, morphs, audio, image string) {
 	sentenceFieldsName := strings.Split(sentence, ",")
 	for _, fieldName := range sentenceFieldsName {
 		if sentenceField, ok := n.Fields[fieldName]; ok {
-			n.sentenceValue = sentenceField.(map[string]interface{})["value"].(string)
+			n.SentenceValue = sentenceField.(map[string]interface{})["value"].(string)
 			break
 		}
 	}
@@ -43,7 +53,7 @@ func (n *Note) GetFieldsValues(sentence, morphs, audio, image string) {
 	morphsFieldsName := strings.Split(morphs, ",")
 	for _, fieldName := range morphsFieldsName {
 		if morphsField, ok := n.Fields[fieldName]; ok {
-			n.morphsValue = morphsField.(map[string]interface{})["value"].(string)
+			n.MorphsValue = morphsField.(map[string]interface{})["value"].(string)
 			break
 		}
 	}
@@ -51,7 +61,7 @@ func (n *Note) GetFieldsValues(sentence, morphs, audio, image string) {
 	audioFieldsName := strings.Split(audio, ",")
 	for _, fieldName := range audioFieldsName {
 		if audioField, ok := n.Fields[fieldName]; ok {
-			n.audioValue = audioField.(map[string]interface{})["value"].(string)
+			n.AudioValue = audioField.(map[string]interface{})["value"].(string)
 			break
 		}
 	}
@@ -59,40 +69,104 @@ func (n *Note) GetFieldsValues(sentence, morphs, audio, image string) {
 	imageFieldsName := strings.Split(image, ",")
 	for _, fieldName := range imageFieldsName {
 		if imageField, ok := n.Fields[fieldName]; ok {
-			n.imageValue = imageField.(map[string]interface{})["value"].(string)
+			n.ImageValue = imageField.(map[string]interface{})["value"].(string)
 			break
 		}
 	}
 }
 
+func (n *Note) GetSource() string {
+	if n.Source == "" {
+		return "Anki"
+	}
+	return n.Source
+}
+
 func (n *Note) GetSentence() string {
-	return n.sentenceValue
+	return n.SentenceValue
 }
 
 func (n *Note) GetMorphs() string {
-	return n.morphsValue
+	return n.MorphsValue
 }
 
 func (n *Note) GetAudioValue() string {
-	return n.audioValue
+	return n.AudioValue
 }
 
-func (n *Note) GetAudioPath(mediaCollection string) string {
-	audioValue := n.GetAudioValue()
-	if audioValue == "" {
-		return ""
+func (n *Note) GetAudio(mediaCollection string) (io.ReadCloser, beep.StreamSeekCloser) {
+	if n.GetSource() == "BrigadaSOS" {
+		res, err := http.Get(n.GetAudioValue())
+		if err != nil {
+			panic(err)
+		}
+
+		// defer res.Body.Close()
+		streamer, _, err := mp3.Decode(res.Body)
+		if err != nil {
+			panic(err)
+		}
+
+		return res.Body, streamer
 	}
-	return filepath.Join(mediaCollection, audioValue[7:len(audioValue)-1])
+
+	if n.GetAudioValue() == "" {
+		return nil, nil
+	}
+
+	audioPath := n.GetAudioValue()[7 : len(n.GetAudioValue())-1]
+	reader, err := os.Open(filepath.Clean(filepath.Join(mediaCollection, audioPath)))
+	if err != nil {
+		panic(err)
+	}
+
+	// defer reader.Close()
+	streamer, _, err := mp3.Decode(reader)
+	if err != nil {
+		panic(err)
+	}
+	return reader, streamer
 }
 
 func (n *Note) GetImageValue() string {
-	return n.imageValue
+	return n.ImageValue
 }
 
-func (n *Note) GetImagePath(mediaCollection string) string {
+func (n *Note) GetImage(mediaCollection string) image.Image {
+	if n.Image != nil {
+		return n.Image
+	}
+
+	// TODO: Add this method to the interface
+	if n.GetSource() == "BrigadaSOS" {
+		res, err := http.Get(n.GetImageValue())
+		if err != nil {
+			panic(err)
+		}
+		defer res.Body.Close()
+		img, err := webp.Decode(res.Body)
+		if err != nil {
+			panic(err)
+		}
+
+		n.Image = img
+		return img
+	}
+
 	imageValue := n.GetImageValue()
 	if imageValue == "" {
-		return ""
+		return nil
 	}
-	return filepath.Join(mediaCollection, imageValue[10:len(imageValue)-2])
+
+	imageContent, err := os.Open(filepath.Clean(filepath.Join(mediaCollection, imageValue[10:len(imageValue)-2])))
+	if err != nil {
+		panic(err)
+	}
+
+	img, _, err := image.Decode(imageContent)
+	if err != nil {
+		panic(err)
+	}
+
+	return img
 }
