@@ -82,20 +82,20 @@ func (c *AnkiConnect) FetchNotesFromID(ids []int) (*models.NotesInfoResult, erro
 }
 
 func (c *AnkiConnect) FetchNotesFromQuery(query string, start int, end int) (*models.NotesInfoResult, error) {
-	notes, err := c.FindNotesIDByQuery(query)
+	notesId, err := c.FindNotesIDByQuery(query)
 	if err != nil {
 		return nil, err
 	}
 
-	if len(notes.Result) == 0 {
+	if len(notesId.Result) == 0 {
 		return &models.NotesInfoResult{}, nil
 	}
 
-	if end > len(notes.Result) {
-		end = len(notes.Result)
+	if end > len(notesId.Result) {
+		end = len(notesId.Result)
 	}
 
-	return c.FetchNotesFromID(notes.Result[start:end])
+	return c.FetchNotesFromID(notesId.Result[start:end])
 }
 
 func (c *AnkiConnect) DeleteNotes(cards []int) error {

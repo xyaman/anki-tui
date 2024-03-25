@@ -11,25 +11,22 @@ type Model struct {
 	Text       string
 	OkText     string
 	CancelText string
-	Visible    bool
-	selected   int
+	IsVisible  bool
 
-	OkFunc     func() tea.Cmd
-	CancelFunc func() tea.Cmd
+	// kind of id
+	Kind     string
+	Cursor   int
+	selected int
 }
 
-func New() Model {
+func New(kind string, cursor int) Model {
 	model := Model{
 		Text:       "",
 		OkText:     "Ok",
 		CancelText: "Cancel",
+		Kind:       kind,
+		Cursor:     cursor,
 	}
-
-	model.CancelFunc = func() tea.Cmd {
-		model.Visible = false
-		return nil
-	}
-
 	return model
 }
 
@@ -44,11 +41,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "left", "right", "h", "l":
 			m.selected = 1 - m.selected
 		case "enter":
-			m.Visible = false
+			m.IsVisible = false
 			if m.selected == 0 {
-				return m, m.OkFunc()
+				return m, SendOkMsg(m.Kind, m.Cursor)
 			} else {
-				return m, m.CancelFunc()
+				return m, SendCancelMsg(m.Kind)
 			}
 		}
 	}
@@ -57,7 +54,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) View() string {
-	if !m.Visible {
+	if !m.IsVisible {
 		return ""
 	}
 

@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/charmbracelet/bubbles/help"
 	"github.com/charmbracelet/bubbles/table"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
@@ -20,6 +21,11 @@ import (
 	"github.com/xyaman/anki-tui/ui/components/modal"
 )
 
+const (
+	mineModal   = "MineModal"
+	deleteModal = "DeleteModal"
+)
+
 type QueryPage struct {
 	table table.Model
 
@@ -30,6 +36,7 @@ type QueryPage struct {
 	morphNotes      []models.Note
 	prevNotesCursor int
 
+	help       help.Model
 	notePage   NotePage
 	configPage QueryPageConfig
 	modal      modal.Model
@@ -65,9 +72,9 @@ func NewQueryPage() QueryPage {
 	return QueryPage{
 		table:      t,
 		notes:      []models.Note{},
+		help:       help.New(),
 		morphNotes: []models.Note{},
 		notePage:   NewNotePage(),
-		modal:      modal.New(),
 		configPage: NewQueryPageConfig(),
 		isConfig:   false,
 		currentEnd: 100,
@@ -120,9 +127,9 @@ func (m QueryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 			// When entering morph mode, we need to get the morphs using "normal" notes
 			// When we are already in morph mode, we need to get the morphs using the morph notes
-			_, morphs, _ := getNoteFields(&m.notes[m.table.Cursor()])
+			morphs := m.notes[m.table.Cursor()].GetMorphs()
 			if isMorphMode {
-				_, morphs, _ = getNoteFields(&m.morphNotes[m.table.Cursor()])
+				morphs = m.morphNotes[m.table.Cursor()].GetMorphs()
 			}
 
 			// Dont enter morph mode if there are no morphs in the selected note
@@ -166,9 +173,8 @@ func (m QueryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				} else {
 					return m, core.Log(core.InfoLog{Type: "info", Text: fmt.Sprintf("Card set as known (%s)", core.App.Config.KnownTag), Seconds: 2})
 				}
-
-			case "ctrl+n":
-				if m.isConfig || m.modal.Visible {
+			case "d":
+				if m.isConfig || m.modal.IsVisible {
 					break
 				}
 				note := m.notes[m.table.Cursor()]
@@ -177,20 +183,29 @@ func (m QueryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 
 				// Show modal
-				sentence, _, _ := getNoteFields(&note)
+				m.modal = modal.New(deleteModal, m.table.Cursor())
+				m.modal.Text = fmt.Sprintf("Delete note?\n\n%s", note.GetSentence())
+				m.modal.IsVisible = true
+				m.modal.OkText = "Confirm"
+				m.modal.CancelText = "Cancel"
+				return m, nil
+
+			case "ctrl+n":
+				if m.isConfig || m.modal.IsVisible {
+					break
+				}
+				note := m.notes[m.table.Cursor()]
+				if len(m.morphNotes) > 0 {
+					note = m.morphNotes[m.table.Cursor()]
+				}
+
+				// Show modal
+				sentence := note.GetSentence()
+				m.modal = modal.New(mineModal, m.table.Cursor())
 				m.modal.Text = fmt.Sprintf("Add image and sentence to last added card?\n\n%s", sentence)
-				m.modal.Visible = true
+				m.modal.IsVisible = true
 				m.modal.OkText = "Yes"
 				m.modal.CancelText = "No"
-				m.modal.OkFunc = func() tea.Cmd {
-					m.modal.Visible = false
-					err := addImageAndSentenceToLastCard(&note)
-					if err != nil {
-						return core.Log(core.InfoLog{Type: "error", Text: fmt.Sprintf("%s", err), Seconds: 3})
-					} else {
-						return core.Log(core.InfoLog{Type: "info", Text: "Image and sentence added to last added card", Seconds: 2})
-					}
-				}
 				return m, nil
 			}
 		}
@@ -198,7 +213,7 @@ func (m QueryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		// We don't want to use the whole height
 		// We have header
-		m.table.SetHeight(core.App.AvailableHeight - 5)
+		m.table.SetHeight(core.App.AvailableHeight - 5 - lipgloss.Height(m.help.View(notepageKeys)))
 
 		return m, nil
 
@@ -248,6 +263,47 @@ func (m QueryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		return m, nil
+
+	case modal.OkMsg:
+		switch msg.Kind {
+		case deleteModal:
+			m.modal.IsVisible = false
+			err := core.App.AnkiConnect.DeleteNotes([]int{m.notes[m.table.Cursor()].NoteID})
+			if err != nil {
+				return m, core.Log(core.InfoLog{Type: "error", Text: fmt.Sprintf("%s", err), Seconds: 3})
+			} else {
+				noteCursor := msg.Cursor
+				m.currentEnd -= 1
+				if len(m.morphNotes) > 0 {
+					m.morphNotes = append(m.morphNotes[:noteCursor], m.morphNotes[noteCursor+1:]...)
+					m.setNotesToTable(m.morphNotes)
+				} else {
+					m.notes = append(m.notes[:noteCursor], m.notes[noteCursor+1:]...)
+					m.setNotesToTable(m.notes)
+				}
+
+				// if current cursor is the same as the deleted note
+				// and the notepage is being used, update it
+				if m.table.Cursor() == noteCursor && m.isNote {
+					m.showNotePage()
+				}
+
+				return m, core.Log(core.InfoLog{Type: "info", Text: "Note deleted", Seconds: 2})
+			}
+
+		case mineModal:
+			m.modal.IsVisible = false
+			err := addImageAndSentenceToLastCard(&m.notes[m.table.Cursor()])
+			if err != nil {
+				return m, core.Log(core.InfoLog{Type: "error", Text: fmt.Sprintf("%s", err), Seconds: 3})
+			} else {
+				return m, core.Log(core.InfoLog{Type: "info", Text: "Image and sentence added to last added card", Seconds: 2})
+			}
+
+		}
+	case modal.CancelMsg:
+		m.modal.IsVisible = false
+		return m, nil
 	}
 
 	// If the table is at the end, fetch more notes
@@ -257,7 +313,7 @@ func (m QueryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, FetchNotes(core.App.Config.MinningQuery, m.currentEnd, m.currentEnd+100, false)
 	}
 
-	if m.modal.Visible {
+	if m.modal.IsVisible {
 		newModal, cmd := m.modal.Update(msg)
 		modal, _ := newModal.(modal.Model)
 		m.modal = modal
@@ -321,7 +377,7 @@ func (m QueryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m QueryPage) View() string {
 
-	if m.modal.Visible {
+	if m.modal.IsVisible {
 		modalStyle := lipgloss.NewStyle().
 			Padding(1, 0)
 
@@ -342,7 +398,9 @@ func (m QueryPage) View() string {
 	var b strings.Builder
 	b.WriteString(topbarinfo)
 	b.WriteString(m.table.View())
-	return lipgloss.PlaceHorizontal(core.App.AvailableWidth, lipgloss.Center, b.String())
+
+	main := lipgloss.PlaceHorizontal(core.App.AvailableWidth, lipgloss.Center, b.String())
+	return lipgloss.JoinVertical(lipgloss.Top, main, m.help.View(notepageKeys))
 }
 
 func (qp *QueryPage) playAudio(note *models.Note) {
@@ -388,7 +446,8 @@ func (qp *QueryPage) playAudio(note *models.Note) {
 func (qp *QueryPage) setNotesToTable(notes []models.Note) {
 	rows := make([]table.Row, len(notes))
 	for i, note := range notes {
-		sentence, morphs, _ := getNoteFields(&note)
+		sentence := note.GetSentence()
+		morphs := note.GetMorphs()
 		rows[i] = table.Row{
 			fmt.Sprintf("#%d", i+1),
 			sentence,
@@ -413,7 +472,7 @@ func (m *QueryPage) showNotePage() {
 	}
 	m.notePage.SetNote(&note)
 	m.notePage.image.SetSize(50, 50)
-	_, _, image := getNoteFields(&note)
+	image := note.GetImagePath(core.App.CollectionPath)
 	m.notePage.image.SetImage(image)
 
 	if core.App.Config.PlayAudioAutomatically && note.NoteID != prevNote {
@@ -430,57 +489,6 @@ func (qp *QueryPage) setCardAsKnown() error {
 	return core.App.AnkiConnect.AddTags(note.NoteID, core.App.Config.KnownTag)
 }
 
-func getNoteFields(note *models.Note) (string, string, string) {
-
-	var sentence, morphs, image string
-
-	sentenceFieldsName := strings.Split(core.App.Config.SentenceFieldName, ",")
-	for _, fieldName := range sentenceFieldsName {
-		if sentenceField, ok := note.Fields[fieldName]; ok {
-			sentence = sentenceField.(map[string]interface{})["value"].(string)
-			break
-		}
-	}
-
-	morphFieldsName := strings.Split(core.App.Config.MorphFieldName, ",")
-	for _, fieldName := range morphFieldsName {
-		if morphField, ok := note.Fields[fieldName]; ok {
-			morphs = morphField.(map[string]interface{})["value"].(string)
-			break
-		}
-	}
-
-	imageFieldsName := strings.Split(core.App.Config.ImageFieldName, ",")
-	for _, fieldName := range imageFieldsName {
-		if imageField, ok := note.Fields[fieldName]; ok {
-			imagevalue := imageField.(map[string]interface{})["value"].(string)
-			image = filepath.Join(core.App.CollectionPath, imagevalue[10:len(imagevalue)-2])
-		}
-	}
-
-	return sentence, morphs, image
-}
-
-func getAudioFields(note *models.Note) string {
-	audioFieldsName := strings.Split(core.App.Config.AudioFieldName, ",")
-	for _, fieldName := range audioFieldsName {
-		if audioField, ok := note.Fields[fieldName]; ok {
-			return audioField.(map[string]interface{})["value"].(string)
-		}
-	}
-	return ""
-}
-
-func getImageFields(note *models.Note) string {
-	imageFieldsName := strings.Split(core.App.Config.ImageFieldName, ",")
-	for _, fieldName := range imageFieldsName {
-		if imageField, ok := note.Fields[fieldName]; ok {
-			return imageField.(map[string]interface{})["value"].(string)
-		}
-	}
-	return ""
-}
-
 // Add image and sentence to last added card
 func addImageAndSentenceToLastCard(note *models.Note) error {
 	// Get last added card
@@ -489,8 +497,8 @@ func addImageAndSentenceToLastCard(note *models.Note) error {
 		return err
 	}
 
-	image := getImageFields(note)
-	audio := getAudioFields(note)
+	image := note.GetImageValue()
+	audio := note.GetAudioValue()
 
 	if audio == "" {
 		return errors.New("No audio field found, check settings")
@@ -499,7 +507,7 @@ func addImageAndSentenceToLastCard(note *models.Note) error {
 	}
 
 	err = core.App.AnkiConnect.UpdateNoteFields(lastAddedCard.NoteID, models.Fields{
-		core.App.Config.MinningAudioFieldName: getAudioFields(note),
+		core.App.Config.MinningAudioFieldName: audio,
 		core.App.Config.MinningImageFieldName: image,
 	})
 

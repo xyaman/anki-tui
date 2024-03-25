@@ -34,10 +34,20 @@ type FetchNotesMsg struct {
 // Return also end
 func FetchNotes(query string, start, end int, morphs bool) tea.Cmd {
 	return func() tea.Msg {
-		result, err := core.App.AnkiConnect.FetchNotesFromQuery(query, start, end)
+		res, err := core.App.AnkiConnect.FetchNotesFromQuery(query, start, end)
 		if err != nil {
 			return core.Log(core.InfoLog{Text: err.Error(), Seconds: 3, Type: "error"})
 		}
-		return FetchNotesMsg{notes: result.Result, start: start, end: len(result.Result), morphs: morphs}
+
+		for i := range res.Result {
+			res.Result[i].GetFieldsValues(
+				core.App.Config.SentenceFieldName,
+				core.App.Config.MorphFieldName,
+				core.App.Config.AudioFieldName,
+				core.App.Config.ImageFieldName,
+			)
+		}
+
+		return FetchNotesMsg{notes: res.Result, start: start, end: len(res.Result), morphs: morphs}
 	}
 }
