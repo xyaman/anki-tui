@@ -279,6 +279,7 @@ func (m QueryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m QueryPage) View() string {
+
 	if m.isConfig {
 		renderConfig := baseStyle.Render(m.configPage.View())
 		return lipgloss.Place(core.App.AvailableWidth, core.App.AvailableHeight, lipgloss.Center, lipgloss.Center, renderConfig)
