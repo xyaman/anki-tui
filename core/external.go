@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"sync"
 
 	"github.com/xyaman/anki-tui/models"
@@ -31,6 +32,7 @@ type Sentence struct {
 
 type BasicInfo struct {
 	NameAnimeJp string `json:"name_anime_jp"`
+	NameAnimeEn string `json:"name_anime_en"`
 }
 
 type SegmentInfo struct {
@@ -39,6 +41,8 @@ type SegmentInfo struct {
 	ActorJa   string `json:"actor_ja"`
 	ActorEn   string `json:"actor_en"`
 	ActorEs   string `json:"actor_es"`
+	StartTime string `json:"start_time"`
+	EndTime   string `json:"end_time"`
 }
 
 type MediaInfo struct {
@@ -91,6 +95,14 @@ func (b *BrigadaSource) FetchNotesFromQuery(query string, start, end int) ([]mod
 
 	notes := make([]models.Note, len(parsedResponse.Sentences))
 	for i, sentence := range parsedResponse.Sentences {
+
+		starttime := strings.ReplaceAll(sentence.SegmentInfo.StartTime, ":", "_")
+		starttime = strings.ReplaceAll(starttime, ".", "_")
+		endtime := strings.ReplaceAll(sentence.SegmentInfo.EndTime, ":", "_")
+		endtime = strings.ReplaceAll(endtime, ".", "_")
+
+		name := strings.ReplaceAll(sentence.BasicInfo.NameAnimeEn, " ", "_")
+
 		notes[i] = models.Note{
 			NoteID:        i,
 			SentenceValue: sentence.SegmentInfo.ContentJp,
@@ -98,6 +110,7 @@ func (b *BrigadaSource) FetchNotesFromQuery(query string, start, end int) ([]mod
 			ImageValue:    sentence.MediaInfo.PathImage,
 			Tags:          []string{sentence.BasicInfo.NameAnimeJp},
 			Source:        "BrigadaSOS",
+			Filename:      fmt.Sprintf("%s_%s_%s", name, starttime, endtime),
 		}
 	}
 

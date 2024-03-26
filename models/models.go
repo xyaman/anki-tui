@@ -1,6 +1,8 @@
 package models
 
 import (
+	"errors"
+	"fmt"
 	"image"
 	"io"
 	"net/http"
@@ -35,7 +37,8 @@ type Note struct {
 	AudioValue    string
 	ImageValue    string
 
-	Image image.Image
+	Image    image.Image
+	Filename string
 }
 
 // Fields represents the main fields for a Anki Note
@@ -169,4 +172,69 @@ func (n *Note) GetImage(mediaCollection string) image.Image {
 	}
 
 	return img
+}
+
+func (n *Note) GetFilename() string {
+	return n.Filename
+}
+
+// DownloadImage saves the image to the media collection and returns the path
+func (n *Note) DownloadImage(collectionPath string) (string, error) {
+
+	var imagePath string
+	// TODO implement this method in the interface
+	if n.GetSource() == "BrigadaSOS" {
+
+		res, err := http.Get(n.GetImageValue())
+		if err != nil {
+			return "", err
+		}
+
+		defer res.Body.Close()
+		imagePath = filepath.Join(collectionPath, n.GetFilename()+".webp")
+		file, err := os.Create(imagePath)
+		if err != nil {
+			return "", err
+		}
+
+		_, err = io.Copy(file, res.Body)
+		if err != nil {
+			return "", err
+		}
+	}
+
+	// Anki field format: <img src="image.jpg">
+	imageFieldValue := fmt.Sprintf("<img src=\"%s\">", filepath.Base(imagePath))
+	return imageFieldValue, nil
+}
+
+func (n *Note) DownloadAudio(collectionPath string) (string, error) {
+	if n.GetAudioValue() == "" {
+		return "", errors.New("Note audio is nil")
+	}
+
+	var audioPath string
+	// TODO implement this method in the interface
+	if n.GetSource() == "BrigadaSOS" {
+		res, err := http.Get(n.GetAudioValue())
+		if err != nil {
+			return "", err
+		}
+
+		defer res.Body.Close()
+		audioPath = filepath.Join(collectionPath, n.GetFilename()+".mp3")
+		file, err := os.Create(audioPath)
+		if err != nil {
+			return "", err
+		}
+
+		_, err = io.Copy(file, res.Body)
+		if err != nil {
+			return "", err
+		}
+	}
+
+	// Anki field format: [sound:audio.mp3]
+	audioFieldValue := fmt.Sprintf("[sound:%s]", filepath.Base(audioPath))
+	return audioFieldValue, nil
 }

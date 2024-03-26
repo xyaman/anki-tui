@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/atotto/clipboard"
 	"github.com/charmbracelet/bubbles/help"
 	"github.com/charmbracelet/bubbles/table"
 	"github.com/charmbracelet/bubbles/textinput"
@@ -213,6 +214,12 @@ func (m QueryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.modal.OkText = "Yes"
 				m.modal.CancelText = "No"
 				return m, nil
+			case "y":
+				sentence := m.notes[m.table.Cursor()].GetSentence()
+				if len(m.morphNotes) > 0 {
+					sentence = m.morphNotes[m.table.Cursor()].GetSentence()
+				}
+				clipboard.WriteAll(sentence)
 			}
 		}
 
@@ -489,8 +496,20 @@ func (qp *QueryPage) setCardAsKnown() error {
 
 // Add image and sentence to last added card
 func addImageAndSentenceToLastCard(note *models.Note) error {
+
+	image := note.GetImageValue()
+	audio := note.GetAudioValue()
+
 	if note.GetSource() != "Anki" {
-		return errors.New("Note is not from Anki")
+		var err error
+		image, err = note.DownloadImage(core.App.CollectionPath)
+		if err != nil {
+			return err
+		}
+		audio, err = note.DownloadAudio(core.App.CollectionPath)
+		if err != nil {
+			return err
+		}
 	}
 
 	// Get last added card
@@ -498,9 +517,6 @@ func addImageAndSentenceToLastCard(note *models.Note) error {
 	if err != nil {
 		return err
 	}
-
-	image := note.GetImageValue()
-	audio := note.GetAudioValue()
 
 	if audio == "" {
 		return errors.New("No audio field found, check settings")
