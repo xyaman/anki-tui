@@ -59,18 +59,6 @@ func NewBrigadaSource(apiKey string) *BrigadaSource {
 }
 
 func (b *BrigadaSource) FetchNotesFromQuery(query string, start, end int) ([]models.Note, error) {
-	// POST https://api.brigadasos.xyz/api/v1/api/search/anime/sentence
-	// x-api-key: f34a3113-e164-4981-bd69-c58430fd64a1
-	// body
-	// {
-	//   "query": "彼女",
-	//   "exact_match": 0,
-	//   "limit": 20,
-	//   "content_sort": null,
-	//   "random_seed": null,
-	//   "season": null,
-	//   "episode": null
-	// }
 
 	jsonBody := []byte(fmt.Sprintf(`{"query":"%s","exact_match":0,"limit":%d,"content_sort":null,"random_seed":null,"season":null,"episode":null}`, query, end-start+1))
 
@@ -102,6 +90,16 @@ func (b *BrigadaSource) FetchNotesFromQuery(query string, start, end int) ([]mod
 		endtime = strings.ReplaceAll(endtime, ".", "_")
 
 		name := strings.ReplaceAll(sentence.BasicInfo.NameAnimeEn, " ", "_")
+		name = strings.ReplaceAll(name, "/", "")
+		name = strings.ReplaceAll(name, ":", "_")
+		name = strings.ReplaceAll(name, "'", "")
+		name = strings.ReplaceAll(name, "!", "")
+		name = strings.ReplaceAll(name, "?", "")
+		name = strings.ReplaceAll(name, ".", "")
+		name = strings.ReplaceAll(name, ",", "")
+		name = strings.ReplaceAll(name, "(", "")
+		name = strings.ReplaceAll(name, ")", "")
+		name = strings.ReplaceAll(name, "\\", "")
 
 		notes[i] = models.Note{
 			NoteID:        i,

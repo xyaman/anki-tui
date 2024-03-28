@@ -19,6 +19,7 @@ func ParseJpSentence(input string) string {
 	// input = strings.Replace(input, " ", "　", -1)
 	input = strings.Replace(input, " ", "", -1)
 	input = strings.Replace(input, "　", "", -1)
+	input = strings.Replace(input, "!", "！", -1)
 
 	seg := tagger.Tokenize(input)
 	var rawSentence string
