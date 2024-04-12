@@ -65,7 +65,6 @@ func (m NotePage) Update(msg tea.Msg) (NotePage, tea.Cmd) {
 						m.pitchCursor += 3
 					}
 				}
-
 			}
 		case "h":
 			if m.pitchMode {
@@ -76,6 +75,10 @@ func (m NotePage) Update(msg tea.Msg) (NotePage, tea.Cmd) {
 				if m.pitchCursor < 0 {
 					m.pitchCursor = 0
 				}
+			}
+		case "j", "k":
+			if m.pitchMode {
+				return m, nil
 			}
 		case "a":
 			if m.pitchMode {

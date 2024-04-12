@@ -373,12 +373,14 @@ func (m QueryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// if user moves, update the note
 		if k == "j" || k == "k" {
-			var cmd tea.Cmd
-			cmds := make([]tea.Cmd, 0)
-			m.table, cmd = m.table.Update(msg)
-			cmds = append(cmds, cmd)
+			if !m.notePage.pitchMode {
+				var cmd tea.Cmd
+				cmds := make([]tea.Cmd, 0)
+				m.table, cmd = m.table.Update(msg)
+				cmds = append(cmds, cmd)
 
-			m.showNotePage()
+				m.showNotePage()
+			}
 		}
 
 		var cmd tea.Cmd
