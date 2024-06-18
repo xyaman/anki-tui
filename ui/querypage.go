@@ -16,6 +16,7 @@ import (
 	"github.com/gopxl/beep/speaker"
 	"github.com/xyaman/anki-tui/core"
 	"github.com/xyaman/anki-tui/models"
+	"github.com/xyaman/anki-tui/ui/components/cardviewer"
 	"github.com/xyaman/anki-tui/ui/components/modal"
 )
 
@@ -35,7 +36,7 @@ type QueryPage struct {
 	prevNotesCursor int
 
 	help       help.Model
-	notePage   NotePage
+	notePage   cardviewer.Model
 	configPage QueryPageConfig
 	modal      modal.Model
 	isConfig   bool
@@ -73,7 +74,7 @@ func NewQueryPage() QueryPage {
 		notes:      []models.Note{},
 		help:       help.New(),
 		morphNotes: []models.Note{},
-		notePage:   NewNotePage(),
+		notePage:   cardviewer.New(),
 		configPage: NewQueryPageConfig(),
 		isConfig:   false,
 		currentEnd: 100,
@@ -224,7 +225,7 @@ func (m QueryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		// We don't want to use the whole height
 		// We have header
-		m.table.SetHeight(core.App.AvailableHeight - 5 - lipgloss.Height(m.help.View(notepageKeys)))
+		m.table.SetHeight(core.App.AvailableHeight - 5 - lipgloss.Height(m.help.View(cardviewer.HelpKeys)))
 
 		return m, nil
 
@@ -371,7 +372,7 @@ func (m QueryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// if user moves, update the note
 		if k == "j" || k == "k" {
-			if !m.notePage.pitchMode {
+			if !m.notePage.PitchMode {
 				var cmd tea.Cmd
 				cmds := make([]tea.Cmd, 0)
 				m.table, cmd = m.table.Update(msg)
@@ -417,7 +418,7 @@ func (m QueryPage) View() string {
 	b.WriteString(m.table.View())
 
 	main := lipgloss.PlaceHorizontal(core.App.AvailableWidth, lipgloss.Center, b.String())
-	return lipgloss.JoinVertical(lipgloss.Top, main, m.help.View(notepageKeys))
+	return lipgloss.JoinVertical(lipgloss.Top, main, m.help.View(cardviewer.HelpKeys))
 }
 
 func (qp *QueryPage) playAudio(note *models.Note) {
@@ -472,13 +473,13 @@ func (m *QueryPage) showNotePage() {
 	}
 
 	prevNote := 0
-	if m.notePage.note != nil {
-		prevNote = m.notePage.note.NoteID
+	if m.notePage.Note != nil {
+		prevNote = m.notePage.Note.NoteID
 	}
 	m.notePage.SetNote(&note)
-	m.notePage.image.SetSize(50, 50)
+	m.notePage.Image.SetSize(50, 50)
 	image := note.GetImage(core.App.CollectionPath)
-	m.notePage.image.SetImage(image)
+	m.notePage.Image.SetImage(image)
 
 	if core.App.Config.PlayAudioAutomatically && note.NoteID != prevNote {
 		m.playAudio(&note)

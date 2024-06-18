@@ -1,8 +1,9 @@
-package ui
+package cardviewer
 
 import "github.com/charmbracelet/bubbles/key"
 
-type notepageKeyMap struct {
+// HelpKeyMap are the key bindings for the cardviewer
+type HelpKeyMap struct {
 	NextNote  key.Binding
 	PrevNote  key.Binding
 	OpenNote  key.Binding
@@ -13,18 +14,18 @@ type notepageKeyMap struct {
 	Return    key.Binding
 }
 
-func (k notepageKeyMap) ShortHelp() []key.Binding {
+func (k HelpKeyMap) ShortHelp() []key.Binding {
 	return []key.Binding{k.NextNote, k.PrevNote, k.OpenNote, k.PlayAudio, k.Mine, k.Return}
 }
 
-func (k notepageKeyMap) FullHelp() [][]key.Binding {
+func (k HelpKeyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
 		k.ShortHelp(),
 		{k.Pitch, k.SeeInAnki},
 	}
 }
 
-var notepageKeys = notepageKeyMap{
+var HelpKeys = HelpKeyMap{
 	NextNote: key.NewBinding(
 		key.WithKeys("j"),
 		key.WithHelp("j", "Next note"),
