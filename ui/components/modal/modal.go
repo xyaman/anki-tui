@@ -19,13 +19,14 @@ type Model struct {
 	selected int
 }
 
-func New(kind string, cursor int) Model {
+func New(kind string, cursor int, visible bool) Model {
 	model := Model{
 		Text:       "",
 		OkText:     "Ok",
 		CancelText: "Cancel",
 		Kind:       kind,
 		Cursor:     cursor,
+    IsVisible:  visible,
 	}
 	return model
 }
@@ -73,4 +74,22 @@ func (m Model) View() string {
 	text := lipgloss.NewStyle().Width(50).Align(lipgloss.Center).Render(m.Text)
 	buttons := lipgloss.JoinHorizontal(lipgloss.Top, okText, cancelText)
 	return lipgloss.JoinVertical(lipgloss.Center, text, buttons)
+}
+
+type cursorPosition int
+const (
+  Ok cursorPosition = iota
+  Cancel
+)
+
+// Show sets the text of the modal and makes it visible.
+func (m *Model) Show(text string, cursor cursorPosition) {
+	m.Text = text
+	m.IsVisible = true
+	m.selected = int(cursor)
+}
+
+// Hide makes the modal invisible.
+func (m *Model) Hide() {
+  m.IsVisible = false
 }

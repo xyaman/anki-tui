@@ -190,9 +190,8 @@ func (m QueryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 
 				// Show modal
-				m.modal = modal.New(deleteModal, m.table.Cursor())
+				m.modal = modal.New(deleteModal, m.table.Cursor(), true)
 				m.modal.Text = fmt.Sprintf("Delete note?\n\n%s", note.GetSentence())
-				m.modal.IsVisible = true
 				m.modal.OkText = "Confirm"
 				m.modal.CancelText = "Cancel"
 				return m, nil
@@ -208,9 +207,8 @@ func (m QueryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 				// Show modal
 				sentence := note.GetSentence()
-				m.modal = modal.New(mineModal, m.table.Cursor())
+				m.modal = modal.New(mineModal, m.table.Cursor(), true)
 				m.modal.Text = fmt.Sprintf("Add image and sentence to last added card?\n\n%s", sentence)
-				m.modal.IsVisible = true
 				m.modal.OkText = "Yes"
 				m.modal.CancelText = "No"
 				return m, nil
@@ -278,9 +276,9 @@ func (m QueryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case modal.OkMsg:
-		switch msg.Kind {
+		switch msg.ID {
 		case deleteModal:
-			m.modal.IsVisible = false
+      m.modal.Hide()
 			err := core.App.AnkiConnect.DeleteNotes([]int{m.notes[m.table.Cursor()].NoteID})
 			if err != nil {
 				return m, core.Log(core.InfoLog{Type: "error", Text: fmt.Sprintf("%s", err), Seconds: 3})
@@ -305,7 +303,7 @@ func (m QueryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 		case mineModal:
-			m.modal.IsVisible = false
+      m.modal.Hide()
 			note := m.notes[msg.Cursor]
 			if len(m.morphNotes) > 0 {
 				note = m.morphNotes[msg.Cursor]
@@ -319,7 +317,7 @@ func (m QueryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		}
 	case modal.CancelMsg:
-		m.modal.IsVisible = false
+    m.modal.Hide()
 		return m, nil
 	}
 
