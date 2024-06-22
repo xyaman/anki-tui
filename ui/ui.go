@@ -9,6 +9,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/xyaman/anki-tui/core"
+	"github.com/xyaman/anki-tui/ui/components/modal"
 )
 
 const (
@@ -23,9 +24,12 @@ func tick() tea.Msg {
 }
 
 type model struct {
-	state     SessionState
+	state     SessionStateMsg
 	MainPage  tea.Model
 	QueryPage tea.Model
+
+	showModal bool
+	modal     tea.Model
 
 	logs []core.InfoLog
 }
@@ -50,8 +54,17 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if k == "ctrl+c" {
 			return m, tea.Quit
 		}
+	case ShowModalMsg:
+		m.showModal = true
+		// TODO: check if this is the best way to handle this
+		m.modal = modal.Model(msg)
+		return m, nil
 
-	case SessionState:
+	case HideModalMsg:
+		m.showModal = false
+		return m, nil
+
+	case SessionStateMsg:
 		m.state = msg
 		return m, nil
 
@@ -87,11 +100,24 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		var cmd tea.Cmd
 		m.QueryPage, cmd = m.QueryPage.Update(msg)
 		return m, cmd
+
+	// We need to send the modal event to all the pages
+	case modal.OkMsg, modal.CancelMsg:
+		var cmd tea.Cmd
+		if m.state == MainPanel {
+			m.MainPage, cmd = m.MainPage.Update(msg)
+			return m, cmd
+		} else if m.state == QueryPanel {
+			m.QueryPage, cmd = m.QueryPage.Update(msg)
+			return m, cmd
+		}
 	}
 
 	var cmd tea.Cmd
 
-	if m.state == MainPanel {
+	if m.showModal {
+		m.modal, cmd = m.modal.Update(msg)
+	} else if m.state == MainPanel {
 		m.MainPage, cmd = m.MainPage.Update(msg)
 	} else if m.state == QueryPanel {
 		m.QueryPage, cmd = m.QueryPage.Update(msg)
@@ -103,7 +129,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m model) View() string {
 
 	var b strings.Builder
-	if m.state == MainPanel {
+	if m.showModal {
+		modalStyle := lipgloss.NewStyle().
+			Padding(1, 0)
+			renderedModal := lipgloss.Place(core.App.AvailableWidth, core.App.AvailableHeight, lipgloss.Center, lipgloss.Center, modalStyle.Render(m.modal.View()))
+		b.WriteString(renderedModal)
+	} else if m.state == MainPanel {
 		b.WriteString(m.MainPage.View())
 	} else if m.state == QueryPanel {
 		b.WriteString(m.QueryPage.View())

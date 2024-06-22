@@ -5,22 +5,37 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/xyaman/anki-tui/core"
 	"github.com/xyaman/anki-tui/models"
+	"github.com/xyaman/anki-tui/ui/components/modal"
 )
 
 var baseStyle = lipgloss.NewStyle().
 	BorderStyle(lipgloss.NormalBorder()).
 	BorderForeground(lipgloss.Color("56"))
 
-type SessionState string
+type ShowModalMsg modal.Model
+type HideModalMsg struct{}
+type SessionStateMsg string
 
 const (
-	MainPanel  SessionState = "MainPanel"
-	QueryPanel SessionState = "QueryPanel"
+	MainPanel  SessionStateMsg = "MainPanel"
+	QueryPanel SessionStateMsg = "QueryPanel"
 )
 
-func GoToPanel(panel SessionState) tea.Cmd {
+func ShowModal(modal modal.Model) tea.Cmd {
+  return func() tea.Msg {
+    return ShowModalMsg(modal)
+  }
+}
+
+func HideModal() tea.Cmd {
+  return func() tea.Msg {
+    return HideModalMsg{}
+  }
+}
+
+func GoToPanel(panel SessionStateMsg) tea.Cmd {
 	return func() tea.Msg {
-		return SessionState(panel)
+		return SessionStateMsg(panel)
 	}
 }
 

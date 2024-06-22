@@ -14,19 +14,21 @@ type Model struct {
 	IsVisible  bool
 
 	// kind of id
-	Kind     string
+	ID     string
 	Cursor   int
 	selected int
 }
 
-func New(kind string, cursor int, visible bool) Model {
+func New(id string, cursor int, visible bool) Model {
 	model := Model{
 		Text:       "",
 		OkText:     "Ok",
 		CancelText: "Cancel",
-		Kind:       kind,
-		Cursor:     cursor,
+		ID:       id,
     IsVisible:  visible,
+
+    // TODO: Change this, right now is only being used in the query page
+		Cursor:     cursor,
 	}
 	return model
 }
@@ -44,9 +46,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "enter":
 			m.IsVisible = false
 			if m.selected == 0 {
-				return m, SendOkMsg(m.Kind, m.Cursor)
+				return m, SendOkMsg(m.ID, m.Cursor)
 			} else {
-				return m, SendCancelMsg(m.Kind)
+				return m, SendCancelMsg(m.ID)
 			}
 		}
 	}

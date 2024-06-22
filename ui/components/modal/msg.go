@@ -11,14 +11,14 @@ type CancelMsg struct {
 	ID string
 }
 
-func SendOkMsg(kind string, cursor int) tea.Cmd {
+func SendOkMsg(id string, cursor int) tea.Cmd {
 	return func() tea.Msg {
-		return OkMsg{ID: kind, Cursor: cursor}
+		return OkMsg{ID: id, Cursor: cursor}
 	}
 }
 
-func SendCancelMsg(kind string) tea.Cmd {
+func SendCancelMsg(id string) tea.Cmd {
 	return func() tea.Msg {
-		return CancelMsg{ID: kind}
+		return CancelMsg{ID: id}
 	}
 }

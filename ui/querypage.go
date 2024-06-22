@@ -38,7 +38,6 @@ type QueryPage struct {
 	help       help.Model
 	notePage   cardviewer.Model
 	configPage QueryPageConfig
-	modal      modal.Model
 	isConfig   bool
 	isNote     bool
 
@@ -182,7 +181,8 @@ func (m QueryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, core.Log(core.InfoLog{Type: "info", Text: fmt.Sprintf("Card set as known (%s)", core.App.Config.KnownTag), Seconds: 2})
 				}
 			case "d":
-				if m.isConfig || m.modal.IsVisible {
+				// if m.isConfig || m.modal.IsVisible {
+				if m.isConfig {
 					break
 				}
 				note := m.notes[m.table.Cursor()]
@@ -191,14 +191,15 @@ func (m QueryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 
 				// Show modal
-				m.modal = modal.New(deleteModal, m.table.Cursor(), true)
-				m.modal.Text = fmt.Sprintf("Delete note?\n\n%s", note.GetSentence())
-				m.modal.OkText = "Confirm"
-				m.modal.CancelText = "Cancel"
-				return m, nil
+				modal := modal.New(deleteModal, m.table.Cursor(), true)
+				modal.Text = fmt.Sprintf("Delete note?\n\n%s", note.GetSentence())
+				modal.OkText = "Confirm"
+				modal.CancelText = "Cancel"
+				return m, ShowModal(modal)
 
 			case "ctrl+n":
-				if m.isConfig || m.modal.IsVisible {
+				// if m.isConfig || m.modal.IsVisible {
+				if m.isConfig {
 					break
 				}
 				note := m.notes[m.table.Cursor()]
@@ -208,11 +209,11 @@ func (m QueryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 				// Show modal
 				sentence := note.GetSentence()
-				m.modal = modal.New(mineModal, m.table.Cursor(), true)
-				m.modal.Text = fmt.Sprintf("Add image and sentence to last added card?\n\n%s", sentence)
-				m.modal.OkText = "Yes"
-				m.modal.CancelText = "No"
-				return m, nil
+				modal := modal.New(mineModal, m.table.Cursor(), true)
+				modal.Text = fmt.Sprintf("Add image and sentence to last added card?\n\n%s", sentence)
+				modal.OkText = "Yes"
+				modal.CancelText = "No"
+				return m, ShowModal(modal)
 			case "y":
 				sentence := m.notes[m.table.Cursor()].GetSentence()
 				if len(m.morphNotes) > 0 {
@@ -279,7 +280,6 @@ func (m QueryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case modal.OkMsg:
 		switch msg.ID {
 		case deleteModal:
-      m.modal.Hide()
 			err := core.App.AnkiConnect.DeleteNotes([]int{m.notes[m.table.Cursor()].NoteID})
 			if err != nil {
 				return m, core.Log(core.InfoLog{Type: "error", Text: fmt.Sprintf("%s", err), Seconds: 3})
@@ -300,11 +300,14 @@ func (m QueryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.showNotePage()
 				}
 
-				return m, core.Log(core.InfoLog{Type: "info", Text: "Note deleted", Seconds: 2})
+				// return m, core.Log(core.InfoLog{Type: "info", Text: "Note deleted", Seconds: 2})
+				return m, tea.Batch(
+					core.Log(core.InfoLog{Type: "info", Text: "Note deleted", Seconds: 2}),
+					HideModal(),
+				)
 			}
 
 		case mineModal:
-      m.modal.Hide()
 			note := m.notes[msg.Cursor]
 			if len(m.morphNotes) > 0 {
 				note = m.morphNotes[msg.Cursor]
@@ -318,8 +321,7 @@ func (m QueryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		}
 	case modal.CancelMsg:
-    m.modal.Hide()
-		return m, nil
+		return m, HideModal()
 	}
 
 	// If the table is at the end, fetch more notes
@@ -327,13 +329,6 @@ func (m QueryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if m.table.Cursor() == m.currentEnd-1 {
 		m.currentEnd += 100
 		return m, FetchNotes(core.App.Config.MinningQuery, m.currentEnd, m.currentEnd+100, false, false)
-	}
-
-	if m.modal.IsVisible {
-		newModal, cmd := m.modal.Update(msg)
-		modal, _ := newModal.(modal.Model)
-		m.modal = modal
-		return m, cmd
 	}
 
 	if m.isConfig {
@@ -394,13 +389,6 @@ func (m QueryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m QueryPage) View() string {
-
-	if m.modal.IsVisible {
-		modalStyle := lipgloss.NewStyle().
-			Padding(1, 0)
-
-		return lipgloss.Place(core.App.AvailableWidth, core.App.AvailableHeight, lipgloss.Center, lipgloss.Center, modalStyle.Render(m.modal.View()))
-	}
 
 	if m.isConfig {
 		renderConfig := baseStyle.Render(m.configPage.View())

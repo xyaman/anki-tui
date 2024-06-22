@@ -47,51 +47,64 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 	image, cmd := m.Image.Update(msg)
 	m.Image = image
 
+	// TODO: we already have the whole note information,
+	// so we could mine from here directly
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		switch msg.String() {
+		// See card in anki
+		case "g":
+			core.App.AnkiConnect.GuiBrowse(fmt.Sprintf("nid:%d", m.Note.NoteID))
+
+		// Enter/exit pitch mode
+		// It will parse the sentence if is not parsed yet
 		case "i":
 			m.PitchMode = !m.PitchMode
 			if m.PitchSentence == "" {
 				sentence := m.Note.GetSentence()
 				m.PitchSentence = core.ParseJpSentence(sentence)
 			}
-		case "l":
-			if m.PitchMode {
-				if m.PitchCursor < len(m.PitchSentence)-3 {
-					m.PitchCursor += 3
-					if m.PitchCursor < len(m.PitchSentence)-1 && m.PitchSentence[m.PitchCursor:m.PitchCursor+3] == "　" {
+		}
+	}
+
+	if m.PitchMode {
+		switch msg := msg.(type) {
+		case tea.KeyMsg:
+			switch msg.String() {
+			case "l":
+				if m.PitchMode {
+					if m.PitchCursor < len(m.PitchSentence)-3 {
 						m.PitchCursor += 3
+						if m.PitchCursor < len(m.PitchSentence)-1 && m.PitchSentence[m.PitchCursor:m.PitchCursor+3] == "　" {
+							m.PitchCursor += 3
+						}
+					}
+				}
+			case "h":
+				if m.PitchMode {
+					if m.PitchCursor > 3 && m.PitchSentence[m.PitchCursor-3:m.PitchCursor] == "　" {
+						m.PitchCursor -= 3
+					}
+					m.PitchCursor -= 3
+					if m.PitchCursor < 0 {
+						m.PitchCursor = 0
+					}
+				}
+			case "j", "k":
+				if m.PitchMode {
+					return m, nil
+				}
+			case "a":
+				if m.PitchMode {
+					m.PitchDrops = append(m.PitchDrops, m.PitchCursor)
+				}
+			case "u":
+				if m.PitchMode {
+					if len(m.PitchDrops) > 0 {
+						m.PitchDrops = m.PitchDrops[:len(m.PitchDrops)-1]
 					}
 				}
 			}
-		case "h":
-			if m.PitchMode {
-				if m.PitchCursor > 3 && m.PitchSentence[m.PitchCursor-3:m.PitchCursor] == "　" {
-					m.PitchCursor -= 3
-				}
-				m.PitchCursor -= 3
-				if m.PitchCursor < 0 {
-					m.PitchCursor = 0
-				}
-			}
-		case "j", "k":
-			if m.PitchMode {
-				return m, nil
-			}
-		case "a":
-			if m.PitchMode {
-				m.PitchDrops = append(m.PitchDrops, m.PitchCursor)
-			}
-		case "u":
-			if m.PitchMode {
-				if len(m.PitchDrops) > 0 {
-					m.PitchDrops = m.PitchDrops[:len(m.PitchDrops)-1]
-				}
-			}
-		case "g":
-			// See in anki gui
-			core.App.AnkiConnect.GuiBrowse(fmt.Sprintf("nid:%d", m.Note.NoteID))
 		}
 	}
 
