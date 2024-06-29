@@ -14,6 +14,7 @@ import (
 	"github.com/gopxl/beep"
 	"github.com/gopxl/beep/generators"
 	"github.com/gopxl/beep/speaker"
+
 	"github.com/xyaman/anki-tui/core"
 	"github.com/xyaman/anki-tui/models"
 	"github.com/xyaman/anki-tui/ui/components/cardviewer"
@@ -31,15 +32,16 @@ type QueryPage struct {
 	// Fetch cursor
 	currentEnd int
 
-	notes           []models.Note
+	searchNotes     []models.Note
 	morphNotes      []models.Note
 	prevNotesCursor int
 
 	help       help.Model
 	notePage   cardviewer.Model
 	configPage QueryPageConfig
-	isConfig   bool
-	isNote     bool
+
+	isConfig bool
+	isNote   bool
 
 	audioCtrl *beep.Ctrl
 }
@@ -69,17 +71,20 @@ func NewQueryPage() QueryPage {
 	t.SetStyles(s)
 
 	return QueryPage{
-		table:      t,
-		notes:      []models.Note{},
-		help:       help.New(),
-		morphNotes: []models.Note{},
-		notePage:   cardviewer.New(),
-		configPage: NewQueryPageConfig(),
-		isConfig:   false,
-		currentEnd: 100,
+		table:       t,
+		searchNotes: []models.Note{},
+		help:        help.New(),
+		morphNotes:  []models.Note{},
+		notePage:    cardviewer.New(),
+		configPage:  NewQueryPageConfig(),
+		isConfig:    false,
+		currentEnd:  100,
 	}
 }
 
+// Init is called when the program starts. And it automically fetches notes
+// based on the minning query.
+// TODO: Don't fetch notes until is opened/needed.
 func (m QueryPage) Init() tea.Cmd {
 	if core.App.Config.MinningQuery == "" {
 		return m.configPage.Init()
@@ -92,18 +97,63 @@ func (m QueryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	var k string
 
+	// Handle configpage events
+	if m.isConfig {
+		switch msg := msg.(type) {
+		case tea.KeyMsg:
+			k = msg.String()
+
+			// If user press enter in Save button (last input)
+			// save the config
+			if k == "enter" && m.configPage.focused == len(m.configPage.inputs) {
+				err := m.configPage.Save()
+				if err != nil {
+					panic(err)
+				}
+				m.isConfig = false
+				m.searchNotes = []models.Note{}
+				m.currentEnd = 100
+				m.table.SetRows([]table.Row{})
+
+				if core.App.Config.MinningQuery == "" {
+					return m, core.Log(core.InfoLog{Type: "info", Text: "Minning query is empty.", Seconds: 3})
+				}
+
+				cmds := []tea.Cmd{FetchNotes(core.App.Config.MinningQuery, 0, 100, false, false)}
+
+				if core.App.Config.SearchQuery == "" {
+					cmds = append(cmds, core.Log(core.InfoLog{Type: "info", Text: "Search query is empty.", Seconds: 3}))
+				}
+
+				return m, tea.Batch(cmds...)
+
+				// Exit config without saving if user presses esc
+			} else if k == "esc" {
+				m.isConfig = false
+				return m, nil
+			}
+
+			newConfigPage, cmd := m.configPage.Update(msg)
+			configPage, _ := newConfigPage.(QueryPageConfig)
+			m.configPage = configPage
+
+			return m, cmd
+		}
+	}
+
+	// Handle notePage & cardview events
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		k = msg.String()
 
+		switch k {
 		// Exit NotePage, Config and MorphMode block
 		// The order is:
-		// 1. Exit notePage and Config
+		// 1. Exit notePage
 		// 2. if not, exit morphMode and reset
-		if k == "esc" {
-			if m.isNote || m.isConfig {
+		case "esc":
+			if m.isNote {
 				m.isNote = false
-				m.isConfig = false
 				return m, nil
 			}
 
@@ -112,30 +162,34 @@ func (m QueryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.morphNotes = []models.Note{}
 
 				// Update table
-				m.setNotesToTable(m.notes)
+				m.setNotesToTable(m.searchNotes)
 				m.table.SetCursor(m.prevNotesCursor)
 
 			}
 			return m, nil
-		}
 
 		// Enter Morphmode
-		if (k == "m" || k == "e") && !m.isConfig {
-
+		// "m" it will look for morphs in the local notes
+		// "e" it will look for morphs in the external notes (BrigadaSOS, ImmersionKit, etc)
+		case "m", "e":
 			isMorphMode := len(m.morphNotes) > 0
 
-			// When entering morph mode, we need to get the morphs using "normal" notes
-			// When we are already in morph mode, we need to get the morphs using the morph notes
-			morphs := m.notes[m.table.Cursor()].GetMorphs()
+			// If we are already in morph mode, we get the current note in the morphs array
+			// If not, we get the current note in the searchNotes array
+			morphs := m.searchNotes[m.table.Cursor()].GetMorphs()
 			if isMorphMode {
 				morphs = m.morphNotes[m.table.Cursor()].GetMorphs()
 			}
 
 			// Dont enter morph mode if there are no morphs in the selected note
-			if morphs == "" && !isMorphMode {
+			// if morphs == "" && !isMorphMode
+
+			// If morphs is empty, we dont make any request
+			if morphs == "" {
 				return m, core.Log(core.InfoLog{Text: "The selected note has no morphs", Type: "Info", Seconds: 2})
 			}
 
+			// Local search
 			if k == "m" {
 				query := core.App.Config.SearchQuery + " " + strings.ReplaceAll(morphs, " ", " or ")
 				return m, tea.Batch(
@@ -143,84 +197,85 @@ func (m QueryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					core.Log(core.InfoLog{Text: "Fetching morphs...", Type: "Info", Seconds: 1}),
 				)
 
+				// External search
 			} else if k == "e" {
 				return m, tea.Batch(
 					FetchNotes(morphs, 0, 100, true, true),
 					core.Log(core.InfoLog{Text: "[external] Fetching morphs...", Type: "Info", Seconds: 5}),
 				)
 			}
-		}
+		case "c":
+			m.isConfig = true
+			return m, textinput.Blink
 
-		if !m.isConfig {
-			switch k {
-			case "c":
-				m.isConfig = true
-				return m, textinput.Blink
-
-			case "p":
-				note := m.notes[m.table.Cursor()]
-				if len(m.morphNotes) > 0 {
-					note = m.morphNotes[m.table.Cursor()]
-				}
-				m.playAudio(&note)
-				return m, nil
-
-			case "o":
-				if m.isConfig {
-					break
-				}
-				m.showNotePage()
-
-				return m, nil
-
-			case "ctrl+k":
-				err := m.setCardAsKnown()
-				if err != nil {
-					return m, core.Log(core.InfoLog{Type: "error", Text: "Error when setting card as known", Seconds: 3})
-				} else {
-					return m, core.Log(core.InfoLog{Type: "info", Text: fmt.Sprintf("Card set as known (%s)", core.App.Config.KnownTag), Seconds: 2})
-				}
-			case "d":
-				// if m.isConfig || m.modal.IsVisible {
-				if m.isConfig {
-					break
-				}
-				note := m.notes[m.table.Cursor()]
-				if len(m.morphNotes) > 0 {
-					note = m.morphNotes[m.table.Cursor()]
-				}
-
-				// Show modal
-				modal := modal.New(deleteModal, m.table.Cursor(), true)
-				modal.Text = fmt.Sprintf("Delete note?\n\n%s", note.GetSentence())
-				modal.OkText = "Confirm"
-				modal.CancelText = "Cancel"
-				return m, ShowModal(modal)
-
-			case "ctrl+n":
-				// if m.isConfig || m.modal.IsVisible {
-				if m.isConfig {
-					break
-				}
-				note := m.notes[m.table.Cursor()]
-				if len(m.morphNotes) > 0 {
-					note = m.morphNotes[m.table.Cursor()]
-				}
-
-				// Show modal
-				sentence := note.GetSentence()
-				modal := modal.New(mineModal, m.table.Cursor(), true)
-				modal.Text = fmt.Sprintf("Add image and sentence to last added card?\n\n%s", sentence)
-				modal.OkText = "Yes"
-				modal.CancelText = "No"
-				return m, ShowModal(modal)
-			case "y":
-				sentence := m.notes[m.table.Cursor()].GetSentence()
-				if len(m.morphNotes) > 0 {
-					sentence = m.morphNotes[m.table.Cursor()].GetSentence()
-				}
-				clipboard.WriteAll(sentence)
+		case "p":
+			note := m.searchNotes[m.table.Cursor()]
+			if len(m.morphNotes) > 0 {
+				note = m.morphNotes[m.table.Cursor()]
 			}
+			m.playAudio(&note)
+			return m, nil
+
+		case "o":
+			m.showCardViewer()
+
+			return m, nil
+
+		case "ctrl+k":
+			err := m.setCardAsKnown()
+			if err != nil {
+				return m, core.Log(core.InfoLog{Type: "error", Text: "Error when setting card as known", Seconds: 3})
+			} else {
+				return m, core.Log(core.InfoLog{Type: "info", Text: fmt.Sprintf("Card set as known (%s)", core.App.Config.KnownTag), Seconds: 2})
+			}
+		case "d":
+			note := m.searchNotes[m.table.Cursor()]
+			if len(m.morphNotes) > 0 {
+				note = m.morphNotes[m.table.Cursor()]
+			}
+
+			// Show modal
+			modal := modal.New(deleteModal, m.table.Cursor(), true)
+			modal.Text = fmt.Sprintf("Delete note?\n\n%s", note.GetSentence())
+			modal.OkText = "Confirm"
+			modal.CancelText = "Cancel"
+			return m, ShowModal(modal)
+
+		case "ctrl+n":
+			note := m.searchNotes[m.table.Cursor()]
+			if len(m.morphNotes) > 0 {
+				note = m.morphNotes[m.table.Cursor()]
+			}
+
+			// Show modal
+			sentence := note.GetSentence()
+			modal := modal.New(mineModal, m.table.Cursor(), true)
+			modal.Text = fmt.Sprintf("Add image and sentence to last added card?\n\n%s", sentence)
+			modal.OkText = "Yes"
+			modal.CancelText = "No"
+			return m, ShowModal(modal)
+		case "y":
+			sentence := m.searchNotes[m.table.Cursor()].GetSentence()
+			if len(m.morphNotes) > 0 {
+				sentence = m.morphNotes[m.table.Cursor()].GetSentence()
+			}
+			clipboard.WriteAll(sentence)
+
+			// if user moves, update the note. Unless the note is in pitch mode
+			// then pass the movements to the table too
+		case "j", "k":
+			if !m.notePage.PitchMode {
+				var cmd tea.Cmd
+				cmds := make([]tea.Cmd, 0)
+				m.table, cmd = m.table.Update(msg)
+				cmds = append(cmds, cmd)
+
+				m.showCardViewer()
+			}
+
+			var cmd tea.Cmd
+			m.notePage, cmd = m.notePage.Update(msg)
+			return m, cmd
 		}
 
 	case tea.WindowSizeMsg:
@@ -234,7 +289,7 @@ func (m QueryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Length is 0 when:
 		// 1. First time fetching notes
 		// 2. Config is updated
-		isReload := len(m.notes) == 0
+		isReload := len(m.searchNotes) == 0
 
 		var notes []models.Note
 
@@ -249,8 +304,8 @@ func (m QueryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			notes = m.morphNotes
 			m.table.SetCursor(0)
 		} else {
-			m.notes = append(m.notes, msg.notes...)
-			notes = m.notes
+			m.searchNotes = append(m.searchNotes, msg.notes...)
+			notes = m.searchNotes
 		}
 
 		if len(notes) == 0 {
@@ -272,7 +327,7 @@ func (m QueryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// Update NotePage
 		if m.isNote {
-			m.showNotePage()
+			m.showCardViewer()
 		}
 
 		return m, nil
@@ -280,7 +335,7 @@ func (m QueryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case modal.OkMsg:
 		switch msg.ID {
 		case deleteModal:
-			err := core.App.AnkiConnect.DeleteNotes([]int{m.notes[m.table.Cursor()].NoteID})
+			err := core.App.AnkiConnect.DeleteNotes([]int{m.searchNotes[m.table.Cursor()].NoteID})
 			if err != nil {
 				return m, core.Log(core.InfoLog{Type: "error", Text: fmt.Sprintf("%s", err), Seconds: 3})
 			} else {
@@ -290,14 +345,14 @@ func (m QueryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.morphNotes = append(m.morphNotes[:noteCursor], m.morphNotes[noteCursor+1:]...)
 					m.setNotesToTable(m.morphNotes)
 				} else {
-					m.notes = append(m.notes[:noteCursor], m.notes[noteCursor+1:]...)
-					m.setNotesToTable(m.notes)
+					m.searchNotes = append(m.searchNotes[:noteCursor], m.searchNotes[noteCursor+1:]...)
+					m.setNotesToTable(m.searchNotes)
 				}
 
 				// if current cursor is the same as the deleted note
 				// and the notepage is being used, update it
 				if m.table.Cursor() == noteCursor && m.isNote {
-					m.showNotePage()
+					m.showCardViewer()
 				}
 
 				// return m, core.Log(core.InfoLog{Type: "info", Text: "Note deleted", Seconds: 2})
@@ -308,7 +363,7 @@ func (m QueryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 		case mineModal:
-			note := m.notes[msg.Cursor]
+			note := m.searchNotes[msg.Cursor]
 			if len(m.morphNotes) > 0 {
 				note = m.morphNotes[msg.Cursor]
 			}
@@ -331,57 +386,6 @@ func (m QueryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, FetchNotes(core.App.Config.MinningQuery, m.currentEnd, m.currentEnd+100, false, false)
 	}
 
-	if m.isConfig {
-		// Exit
-		if k == "enter" && m.configPage.focused == len(m.configPage.inputs) {
-			err := m.configPage.Save()
-			if err != nil {
-				panic(err)
-			}
-			m.isConfig = false
-			m.notes = []models.Note{}
-			m.currentEnd = 100
-			m.table.SetRows([]table.Row{})
-
-			if core.App.Config.MinningQuery == "" {
-				return m, core.Log(core.InfoLog{Type: "info", Text: "Minning query is empty.", Seconds: 3})
-			}
-
-			cmds := []tea.Cmd{FetchNotes(core.App.Config.MinningQuery, 0, 100, false, false)}
-
-			if core.App.Config.SearchQuery == "" {
-				cmds = append(cmds, core.Log(core.InfoLog{Type: "info", Text: "Search query is empty.", Seconds: 3}))
-			}
-
-			return m, tea.Batch(cmds...)
-		}
-
-		newConfigPage, cmd := m.configPage.Update(msg)
-		configPage, _ := newConfigPage.(QueryPageConfig)
-		m.configPage = configPage
-
-		return m, cmd
-	}
-
-	if m.isNote {
-
-		// if user moves, update the note
-		if k == "j" || k == "k" {
-			if !m.notePage.PitchMode {
-				var cmd tea.Cmd
-				cmds := make([]tea.Cmd, 0)
-				m.table, cmd = m.table.Update(msg)
-				cmds = append(cmds, cmd)
-
-				m.showNotePage()
-			}
-		}
-
-		var cmd tea.Cmd
-		m.notePage, cmd = m.notePage.Update(msg)
-		return m, cmd
-	}
-
 	// handle table
 	var cmd tea.Cmd
 	m.table, cmd = m.table.Update(msg)
@@ -399,7 +403,7 @@ func (m QueryPage) View() string {
 		return m.notePage.View()
 	}
 
-	topbarinfo := fmt.Sprintf("Query: %s \nTotal: %d\n\n", core.App.Config.MinningQuery, len(m.notes))
+	topbarinfo := fmt.Sprintf("Query: %s \nTotal: %d\n\n", core.App.Config.MinningQuery, len(m.searchNotes))
 
 	var b strings.Builder
 	b.WriteString(topbarinfo)
@@ -452,10 +456,10 @@ func (qp *QueryPage) setNotesToTable(notes []models.Note) {
 	qp.table.SetRows(rows)
 }
 
-func (m *QueryPage) showNotePage() {
+func (m *QueryPage) showCardViewer() {
 	m.isNote = true
 
-	note := m.notes[m.table.Cursor()]
+	note := m.searchNotes[m.table.Cursor()]
 	if len(m.morphNotes) > 0 {
 		note = m.morphNotes[m.table.Cursor()]
 	}
@@ -475,7 +479,7 @@ func (m *QueryPage) showNotePage() {
 }
 
 func (qp *QueryPage) setCardAsKnown() error {
-	note := qp.notes[qp.table.Cursor()]
+	note := qp.searchNotes[qp.table.Cursor()]
 	if len(qp.morphNotes) > 0 {
 		note = qp.morphNotes[qp.table.Cursor()]
 	}

@@ -74,7 +74,7 @@ func LoadConfig() (*Config, error) {
 		}
 
 		config = &Config{
-      InfoChannel: make(chan int, 1),
+			InfoChannel: make(chan int, 1),
 
 			MinningQuery:      "deck:morphman::86 tag:1T -tag:MT",
 			SearchQuery:       "deck:morphman tag:1T -tag:MT",
