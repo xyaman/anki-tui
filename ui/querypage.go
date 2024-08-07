@@ -270,7 +270,9 @@ func (m QueryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.table, cmd = m.table.Update(msg)
 				cmds = append(cmds, cmd)
 
-				m.showCardViewer()
+				if m.isNote {
+					m.showCardViewer()
+				}
 			}
 
 			var cmd tea.Cmd
